@@ -1,0 +1,17 @@
+**/node_modules
+**/dist
+**/.vite
+**/__pycache__
+**/.venv
+**/venv
+**/.pytest_cache
+**/.ruff_cache
+**/.mypy_cache
+**/.coverage
+.git/
+.github/
+.vscode/
+.idea/
+*.md
+.env
+.env.local

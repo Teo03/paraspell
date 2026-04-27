@@ -1,0 +1,43 @@
+# Local development compose file.
+# - Both services bind-mount their source dir for hot reload.
+# - Container-managed dependency dirs (node_modules, .venv) sit on top of the
+#   bind mount as named volumes so host artifacts don't shadow them.
+# - Shared config comes from the root .env (see .env.example).
+
+services:
+  backend:
+    build:
+      context: ./apps/backend
+      dockerfile: Dockerfile
+    container_name: paraspell-backend
+    env_file: .env
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./apps/backend:/app
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health').status==200 else 1)"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
+  frontend:
+    build:
+      context: .
+      dockerfile: apps/frontend/Dockerfile
+    container_name: paraspell-frontend
+    env_file: .env
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./apps/frontend:/repo/apps/frontend
+      - frontend_root_node_modules:/repo/node_modules
+      - frontend_node_modules:/repo/apps/frontend/node_modules
+    depends_on:
+      backend:
+        condition: service_started
+
+volumes:
+  frontend_node_modules:
+  frontend_root_node_modules:
