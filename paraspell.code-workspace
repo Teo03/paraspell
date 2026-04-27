@@ -1,0 +1,10 @@
+{
+  "folders": [
+    { "name": "paraspell (root)", "path": "." },
+    { "name": "frontend", "path": "apps/frontend" },
+    { "name": "backend", "path": "apps/backend" }
+  ],
+  "settings": {
+    "editor.formatOnSave": true
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "name": "paraspell",
+  "private": true,
+  "description": "ParaSpell — Parallel Spell Checker monorepo root.",
+  "scripts": {
+    "dev:frontend": "pnpm --filter frontend dev",
+    "build:frontend": "pnpm --filter frontend build",
+    "lint:frontend": "pnpm --filter frontend lint"
+  },
+  "engines": {
+    "node": ">=20",
+    "pnpm": ">=8"
+  },
+  "packageManager": "pnpm@8.15.3"
+}
