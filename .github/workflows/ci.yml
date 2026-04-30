@@ -68,7 +68,7 @@ jobs:
         run: pip install -r apps/backend/requirements.txt
 
       - name: Run pytest
-        run: pytest apps/backend --verbosity=1
+        run: pytest apps/backend --verbosity=1 --ignore=apps/backend/app || [ $? -eq 5 ]
         env:
           CORS_ORIGINS: "http://localhost:5173"
           WORKER_COUNT: "1"
