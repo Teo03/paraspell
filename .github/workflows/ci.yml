@@ -1,0 +1,75 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  # ──────────────────────────────────────────────────────────────────
+  # Lint — flake8 (Python) + eslint (React/JS)
+  # ──────────────────────────────────────────────────────────────────
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # Python lint
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install flake8
+        run: pip install flake8
+
+      - name: Run flake8
+        run: flake8 apps/backend/app --max-line-length=100
+
+      # Frontend lint
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: "8.15.3"
+
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run eslint
+        run: pnpm lint:frontend
+
+  # ──────────────────────────────────────────────────────────────────
+  # Test — pytest (backend)
+  # ──────────────────────────────────────────────────────────────────
+  pytest:
+    name: pytest
+    runs-on: ubuntu-latest
+    needs: lint
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install backend dependencies
+        run: pip install -r apps/backend/requirements.txt
+
+      - name: Run pytest
+        run: pytest apps/backend --verbosity=1
+        env:
+          CORS_ORIGINS: "http://localhost:5173"
+          WORKER_COUNT: "1"
+          CHUNK_SIZE: "50"
