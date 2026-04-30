@@ -71,7 +71,7 @@ class SpellChecker:
         if not tokens:
             return []
         size = self._chunk_size or math.ceil(len(tokens) / self._worker_count)
-        return [tokens[i : i + size] for i in range(0, len(tokens), size)]
+        return [tokens[i:i + size] for i in range(0, len(tokens), size)]
 
     @staticmethod
     def _resolve_int(env_var: str, default: int) -> int:
