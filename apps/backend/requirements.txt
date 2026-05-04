@@ -10,7 +10,18 @@ python-docx==1.1.2
  
 # .pdf extraction (Part 4 — check/file endpoint)
 PyMuPDF==1.24.5
- 
+
+# Dictionary storage (Part 2 — MARISA-trie reference dictionary)
+marisa-trie==1.2.1
+
+# Phonetic filter — American Soundex (Part 2 — phonetic candidate gen)
+# C-implemented, GIL-released, fork-safe (read-only after init).
+jellyfish==1.1.0
+
+# Edit-distance ranker — Levenshtein (Part 2 — final candidate scoring)
+# C++/Cython, MIT-licensed (note: python-Levenshtein is GPL — avoid).
+rapidfuzz==3.10.1
+
 # Testing
 pytest==8.2.0
 httpx==0.27.0
