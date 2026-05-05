@@ -90,6 +90,14 @@ pip install -r requirements.txt
 uvicorn app.main:app --reload
 ```
 
+Run all backend tests (from the repo root, with the venv activated):
+
+```bash
+pytest apps/backend --ignore=apps/backend/app
+```
+
+This is the same command CI runs — see [Running tests](#running-tests) for verbose output, single-file runs, and other invocations.
+
 ### Frontend
 
 ```bash
@@ -142,6 +150,66 @@ pnpm lint:frontend         # ESLint on the frontend
 # inside apps/backend
 uvicorn app.main:app --reload     # backend dev server
 ```
+
+## Running tests
+
+The backend test suite lives under `apps/backend/tests/` and is driven by [pytest](https://docs.pytest.org/). The same command CI uses is the one to run locally — no extra setup, no `cd` into the package, no `PYTHONPATH` shuffle (the test suite's `conftest.py` handles that).
+
+### Prerequisites
+
+The tests use the committed `apps/backend/app/data/words.marisa` and `apps/backend/app/data/soundex.sqlite` artifacts. If you have a fresh checkout and either file is missing, regenerate them first:
+
+```bash
+python apps/backend/scripts/build_dict.py            # produces words.marisa
+python apps/backend/scripts/build_soundex_sqlite.py  # produces soundex.sqlite
+```
+
+You only need to run these if the data files are missing — they're committed and shipped with the repo.
+
+### Run the whole backend suite
+
+From the repo root:
+
+```bash
+pytest apps/backend --ignore=apps/backend/app
+```
+
+This is the exact command the CI workflow runs (`.github/workflows/ci.yml`), so green here means green in CI. Expect ~66 tests covering Soundex, Dictionary, and the worker pipeline.
+
+### Useful invocations
+
+```bash
+# Verbose — print every test name as it runs
+pytest apps/backend --ignore=apps/backend/app -v
+
+# Run only one file
+pytest apps/backend/tests/test_soundex.py
+
+# Run only one class or one test
+pytest apps/backend/tests/test_dictionary.py::TestLRUCache
+pytest apps/backend/tests/test_worker.py::TestRanking::test_suggestions_sorted_descending
+
+# Filter by name substring (e.g. every parametrised typo case)
+pytest apps/backend -k "typo"
+
+# Stop at the first failure
+pytest apps/backend -x
+```
+
+### Running tests inside Docker
+
+If you'd rather not install Python deps locally, run pytest inside the running backend container:
+
+```bash
+docker compose exec backend pytest /app/tests --ignore=/app/app
+```
+
+(Note: this requires the test folder and data files to be copied into the image. If they aren't yet — the production `Dockerfile` only copies `app/` — run pytest from the host instead.)
+
+## Team notes
+
+- A few entries in the typo list (e.g., "untill", "embarras") appear in dwyl's wordlist as archaic spellings, so they do not trigger correction. That behavior comes from the source list, not the engine. If the team wants stricter filtering, point the build script at SCOWL and cap the size to match.
+- Linux copy-on-write only shares pages with `mp.get_context("fork")`. Edi's Part 3 should use `fork` (the Linux default); `spawn` would re-execute imports and rebuild the Soundex index per worker. Flag this in the Part 3 PR.
 
 ## Project ownership
 

@@ -12,7 +12,9 @@
     "**/.ruff_cache": true,
     "**/.mypy_cache": true
   },
-  "python.analysis.extraPaths": ["apps/backend"],
+  "python.analysis.extraPaths": [
+    "apps/backend"
+  ],
   "python.defaultInterpreterPath": "apps/backend/.venv/bin/python",
   "[python]": {
     "editor.defaultFormatter": "charliermarsh.ruff",
@@ -24,5 +26,10 @@
   "[typescriptreact]": {
     "editor.defaultFormatter": "esbenp.prettier-vscode"
   },
-  "typescript.tsdk": "apps/frontend/node_modules/typescript/lib"
+  "typescript.tsdk": "apps/frontend/node_modules/typescript/lib",
+  "python.testing.pytestArgs": [
+    "apps"
+  ],
+  "python.testing.unittestEnabled": false,
+  "python.testing.pytestEnabled": true
 }

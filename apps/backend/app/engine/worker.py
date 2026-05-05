@@ -1,38 +1,87 @@
 """Parallel worker logic (FR-06, FR-07 / NFR-12).
 
-Each worker receives a chunk of pre-tokenised words, checks them against the
-shared Dictionary, and returns a list of Correction objects.
+Each worker receives a chunk of pre-tokenised words, checks them against
+the shared ``Dictionary``, and returns ``Correction`` objects with up to
+``MAX_SUGGESTIONS`` ranked suggestions.
 
-The multiprocessing pool is managed by SpellChecker (checker.py); this module
-owns only the per-chunk processing function so it can be safely pickled and
-sent to child processes.
+Pipeline per word
+-----------------
+    1. Trie membership check               (Dictionary.contains)
+    2. Phonetic candidate filter (Soundex) (Dictionary.soundex_candidates)
+    3. Length pre-filter   |len(c)-len(w)| ≤ MAX_DISTANCE  (cheap)
+    4. Edit-distance ranking (Levenshtein, rapidfuzz)
+    5. Sort by score, take top MAX_SUGGESTIONS
 
-TODO (workers card): implement real parallel dispatch with
-    concurrent.futures.ProcessPoolExecutor and the WORKER_COUNT / CHUNK_SIZE
-    env vars from .env.
+This module is the function ``ProcessPoolExecutor`` will pickle and send
+to child workers (see ``checker.py``). Everything below the function
+signature is **stateless**: the only mutable thing is the local
+``corrections`` list, and ``Dictionary`` is constructed before fork so
+the trie + Soundex index are shared via Linux copy-on-write — no locks,
+no per-call allocation of the 370 k key set.
+
+Design pattern note
+-------------------
+* **Strategy** — ``Dictionary.soundex_candidates`` is the phonetic
+  strategy, ``rapidfuzz.distance.Levenshtein`` is the ranking strategy.
+  Both can be swapped (Metaphone / Damerau-Levenshtein / Jaro-Winkler)
+  without touching this orchestration code.
+* The function shape itself is **Pipeline**: filter → rank → top-N. Kept
+  inline (rather than a class hierarchy) because each stage is a single
+  call and a class would cost more in pickling overhead than it would
+  save in clarity.
 """
 
 from __future__ import annotations
+
+import os
+
+from rapidfuzz.distance import Levenshtein
 
 from app.engine.dictionary import Dictionary
 from app.schemas.spell import Correction, Suggestion
 
 
-def process_chunk(chunk: list[tuple[str, int]], dictionary: Dictionary) -> list[Correction]:
-    """Check a chunk of (word, offset) pairs and return corrections.
+# ---------------------------------------------------------------------------
+# Tunables — read once at module import. Resolved per-process; with
+# ProcessPoolExecutor each worker re-imports this module post-fork, so
+# the values are stable for the lifetime of the worker.
+# ---------------------------------------------------------------------------
+
+# UC-03 / .env.example MAX_SUGGESTIONS — at most this many suggestions per
+# misspelled word. Defaults to 5 per the SRS.
+MAX_SUGGESTIONS: int = int(os.getenv("MAX_SUGGESTIONS", "5"))
+
+# Levenshtein distance > MAX_DISTANCE is dropped before ranking. Empirically
+# the right correction for a typo is at edit-distance 1 or 2 in >95% of
+# cases; allowing 3 catches doubled letters / vowel swaps in long words;
+# 4+ produces semantic noise (e.g. "the" → "those"). Configurable so the
+# benchmark task in Part 3 can tune it.
+MAX_DISTANCE: int = int(os.getenv("MAX_EDIT_DISTANCE", "3"))
+
+
+# ---------------------------------------------------------------------------
+# Public entry point
+# ---------------------------------------------------------------------------
+
+def process_chunk(
+    chunk: list[tuple[str, int]],
+    dictionary: Dictionary,
+) -> list[Correction]:
+    """Check a chunk of ``(word, offset)`` pairs and return corrections.
 
     Parameters
     ----------
     chunk:
-        List of ``(word, character_offset)`` tuples for this worker's slice.
+        Tokens this worker is responsible for. The chunk is already lower-
+        balanced by ``checker.SpellChecker._split`` so workers finish at
+        roughly the same time.
     dictionary:
-        Shared read-only Dictionary instance (safe across processes because
-        it is constructed before the fork, not after).
+        Shared read-only ``Dictionary`` instance (built before fork).
 
     Returns
     -------
     list[Correction]
-        One entry per misspelled word found in *chunk*.
+        One entry per misspelled word in *chunk*. Order matches input order.
     """
     corrections: list[Correction] = []
 
@@ -40,13 +89,65 @@ def process_chunk(chunk: list[tuple[str, int]], dictionary: Dictionary) -> list[
         if dictionary.contains(word):
             continue
 
-        candidates = dictionary.soundex_candidates(word)
-        suggestions = [
-            Suggestion(word=candidate, score=1.0)
-            for candidate in candidates[:5]   # UC-03: up to 5
-        ]
+        suggestions = _rank_suggestions(word, dictionary)
         corrections.append(
             Correction(original=word, offset=offset, suggestions=suggestions)
         )
 
     return corrections
+
+
+# ---------------------------------------------------------------------------
+# Internals
+# ---------------------------------------------------------------------------
+
+def _rank_suggestions(word: str, dictionary: Dictionary) -> list[Suggestion]:
+    """Soundex-filter then Levenshtein-rank candidates for *word*.
+
+    Length pre-filter
+        ``Levenshtein(a, b) ≥ |len(a) - len(b)|`` so any candidate whose
+        length differs by more than MAX_DISTANCE can never qualify. We
+        skip the (relatively expensive) edit-distance call for those —
+        a meaningful speedup on common short words where Soundex returns
+        thousands of candidates.
+
+    Score
+        ``1 - dist / max(len(query), len(candidate))`` — produces a value
+        in [0, 1] that satisfies the ``Suggestion.score`` constraint and
+        ranks intuitively (shorter edit distance and longer matched
+        prefix → higher score). Equivalent to
+        ``rapidfuzz.distance.Levenshtein.normalized_similarity`` but
+        computed once from the integer distance we already have, so it's
+        slightly cheaper than calling both APIs.
+    """
+    query = word.lower()
+    candidates = dictionary.soundex_candidates(query)
+    if not candidates:
+        return []
+
+    qlen = len(query)
+    scored: list[tuple[float, int, str]] = []  # (score, distance, word)
+
+    for candidate in candidates:
+        # Cheap length pre-filter — no allocation, no C call.
+        if abs(len(candidate) - qlen) > MAX_DISTANCE:
+            continue
+
+        # ``score_cutoff`` lets rapidfuzz bail out early once the running
+        # distance exceeds the threshold. Matches the post-filter below
+        # but saves cycles inside the C extension.
+        dist = Levenshtein.distance(query, candidate, score_cutoff=MAX_DISTANCE)
+        if dist > MAX_DISTANCE:
+            continue
+
+        score = 1.0 - dist / max(qlen, len(candidate))
+        scored.append((score, dist, candidate))
+
+    # Sort: highest score first; tie-break on shorter distance, then on
+    # alphabetical word (already sorted in the bucket, so this is stable).
+    scored.sort(key=lambda t: (-t[0], t[1], t[2]))
+
+    return [
+        Suggestion(word=cand, score=score)
+        for score, _dist, cand in scored[:MAX_SUGGESTIONS]
+    ]
