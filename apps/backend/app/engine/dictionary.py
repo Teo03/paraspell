@@ -162,7 +162,6 @@ class Dictionary:
             return False
         return word.lower() in self._words
 
-
     def lookup(self, word: str) -> bool:
         """Return ``True`` if *word* is a correctly spelled dictionary word.
 
@@ -196,7 +195,6 @@ class Dictionary:
         if not code:
             return []
         return list(self._fetch_bucket(code))
-
 
     def get_candidates(self, word: str, top_n: int) -> list[str]:
         """Return the top-*n* ranked correction candidates for *word*.
