@@ -242,3 +242,106 @@ class TestPaths:
         clone = pickle.loads(pickle.dumps(dictionary))
         clone.close()
         clone.close()  # must not raise
+
+
+# ---------------------------------------------------------------------------
+# lookup() — clean public alias for contains()
+# ---------------------------------------------------------------------------
+
+class TestLookup:
+    def test_known_word_returns_true(self, dictionary: Dictionary) -> None:
+        assert dictionary.lookup("hello") is True
+        assert dictionary.lookup("python") is True
+
+    def test_misspelling_returns_false(self, dictionary: Dictionary) -> None:
+        assert dictionary.lookup("recieve") is False
+        assert dictionary.lookup("seperate") is False
+
+    def test_case_insensitive(self, dictionary: Dictionary) -> None:
+        assert dictionary.lookup("Hello") is True
+        assert dictionary.lookup("WORLD") is True
+
+    def test_empty_string_returns_false(self, dictionary: Dictionary) -> None:
+        assert dictionary.lookup("") is False
+
+    def test_agrees_with_contains(self, dictionary: Dictionary) -> None:
+        """lookup and contains must always return the same value."""
+        for word in ("hello", "recieve", "python", "xqzqzx", ""):
+            assert dictionary.lookup(word) == dictionary.contains(word), (
+                f"lookup({word!r}) disagrees with contains({word!r})"
+            )
+
+
+# ---------------------------------------------------------------------------
+# get_candidates() — Soundex + Levenshtein ranked list
+# ---------------------------------------------------------------------------
+
+class TestGetCandidates:
+    def test_returns_list(self, dictionary: Dictionary) -> None:
+        result = dictionary.get_candidates("recieve", top_n=5)
+        assert isinstance(result, list)
+
+    def test_top_n_respected(self, dictionary: Dictionary) -> None:
+        result = dictionary.get_candidates("recieve", top_n=3)
+        assert len(result) <= 3
+
+    def test_top_n_zero_returns_empty(self, dictionary: Dictionary) -> None:
+        assert dictionary.get_candidates("recieve", top_n=0) == []
+
+    def test_known_word_still_returns_candidates(
+        self, dictionary: Dictionary
+    ) -> None:
+        """Even correctly spelled words have a Soundex bucket — the method
+        doesn't short-circuit on membership, it always returns the ranked
+        neighbours."""
+        result = dictionary.get_candidates("receive", top_n=5)
+        assert isinstance(result, list)
+
+    def test_correct_word_appears_in_candidates(
+        self, dictionary: Dictionary
+    ) -> None:
+        """The primary contract: the right correction must be in the list."""
+        result = dictionary.get_candidates("recieve", top_n=5)
+        assert "receive" in result, f"expected 'receive' in {result}"
+
+    def test_results_are_strings(self, dictionary: Dictionary) -> None:
+        result = dictionary.get_candidates("seperate", top_n=5)
+        assert all(isinstance(w, str) for w in result)
+
+    def test_results_are_ranked_best_first(self, dictionary: Dictionary) -> None:
+        """Verify ordering is descending by Levenshtein similarity.
+
+        We can't compare raw scores (get_candidates returns strings), so we
+        re-derive the distance from each candidate and assert non-decreasing
+        edit distance — a proxy for non-increasing score.
+        """
+        from rapidfuzz.distance import Levenshtein
+        query = "recieve"
+        result = dictionary.get_candidates(query, top_n=5)
+        distances = [Levenshtein.distance(query, c) for c in result]
+        assert distances == sorted(distances), (
+            f"candidates should be ranked closest-first, got distances {distances}"
+        )
+
+    def test_garbage_input_returns_list(self, dictionary: Dictionary) -> None:
+        """Nonsense input must not raise — empty bucket → empty list."""
+        result = dictionary.get_candidates("xqzqzqzqzqz", top_n=5)
+        assert isinstance(result, list)
+
+    @pytest.mark.parametrize(
+        ("typo", "expected"),
+        [
+            ("recieve", "receive"),
+            ("seperate", "separate"),
+            ("definately", "definitely"),
+            ("begining", "beginning"),
+            ("occured", "occurred"),
+        ],
+    )
+    def test_common_typos_surface_correction(
+        self, dictionary: Dictionary, typo: str, expected: str
+    ) -> None:
+        result = dictionary.get_candidates(typo, top_n=5)
+        assert expected in result, (
+            f"expected {expected!r} in get_candidates({typo!r}, 5), got {result}"
+        )

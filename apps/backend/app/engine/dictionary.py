@@ -58,6 +58,7 @@ from typing import Iterable
 
 import jellyfish
 import marisa_trie
+from rapidfuzz.distance import Levenshtein as _Levenshtein
 
 
 logger = logging.getLogger(__name__)
@@ -75,6 +76,11 @@ _DEFAULT_DB_PATH = _DATA_DIR / "soundex.sqlite"
 # appear repeatedly). Tunable via SOUNDEX_CACHE_SIZE so the Part 3
 # benchmark task can sweep this.
 _DEFAULT_CACHE_SIZE = int(os.getenv("SOUNDEX_CACHE_SIZE", "1024"))
+
+# Maximum edit distance used by get_candidates() for candidate filtering and
+# ranking. Mirrors the same env var read by worker.py so both layers are
+# configured identically from .env.
+_MAX_EDIT_DISTANCE: int = int(os.getenv("MAX_EDIT_DISTANCE", "3"))
 
 
 def soundex(word: str) -> str:
@@ -104,11 +110,13 @@ class Dictionary:
     """In-memory MARISA-trie + SQLite-backed Soundex mapping.
 
     Public contract:
-        contains(word)           -> bool
-        soundex_candidates(word) -> list[str]
-        __len__()                -> int
-        iter_words()             -> Iterable[str]
-        close()                  -> None
+        lookup(word)                     -> bool
+        get_candidates(word, top_n)      -> list[str]   (ranked)
+        contains(word)                   -> bool        (lower-level alias)
+        soundex_candidates(word)         -> list[str]   (unranked bucket)
+        __len__()                        -> int
+        iter_words()                     -> Iterable[str]
+        close()                          -> None
     """
 
     def __init__(
@@ -154,6 +162,28 @@ class Dictionary:
             return False
         return word.lower() in self._words
 
+
+    def lookup(self, word: str) -> bool:
+        """Return ``True`` if *word* is a correctly spelled dictionary word.
+
+        This is the primary membership check for callers that don't need to
+        know about the underlying trie implementation.  Semantically identical
+        to ``contains()`` — prefer ``lookup`` at call sites in routers and
+        tests; prefer ``contains`` inside engine internals where the trie
+        context is already established.
+
+        Parameters
+        ----------
+        word:
+            Surface form as typed by the user.  Case-insensitive.
+
+        Returns
+        -------
+        bool
+            ``True`` if *word* exists in the 370 k-word reference list.
+        """
+        return self.contains(word)
+
     def soundex_candidates(self, word: str) -> list[str]:
         """Return every dictionary word that shares *word*'s Soundex code.
 
@@ -166,6 +196,81 @@ class Dictionary:
         if not code:
             return []
         return list(self._fetch_bucket(code))
+
+
+    def get_candidates(self, word: str, top_n: int) -> list[str]:
+        """Return the top-*n* ranked correction candidates for *word*.
+
+        This is the high-level lookup method that the engine and tests
+        should use in preference to calling ``soundex_candidates`` and
+        running Levenshtein manually.
+
+        Pipeline
+        --------
+        1. **Soundex filter** — fetches every dictionary word that shares
+           *word*\'s Soundex code (O(1) LRU hit after the first query for
+           a given code; O(SQL) on a miss).
+        2. **Length pre-filter** — drops candidates where
+           ``|len(candidate) - len(word)| > MAX_EDIT_DISTANCE``  (no C call,
+           no allocation — just integer arithmetic).
+        3. **Levenshtein ranking** — scores surviving candidates with
+           ``rapidfuzz`` (C extension, GIL-released).  Uses ``score_cutoff``
+           so rapidfuzz bails out early for distant pairs.
+        4. **Top-N slice** — returns at most *top_n* words, best match first.
+
+        The ranking formula ``1 - dist / max(len(query), len(candidate))``
+        maps edit distance to a [0, 1] similarity score that matches the
+        ``Suggestion.score`` field in the API schema — zero extra work for
+        the router layer.
+
+        Parameters
+        ----------
+        word:
+            The misspelled word to find corrections for.  May be mixed-case;
+            comparison is always lowercased.
+        top_n:
+            Maximum number of candidates to return.  Pass
+            ``int(os.getenv("MAX_SUGGESTIONS", "5"))`` at call sites that
+            want to respect the SRS UC-03 / §5.2.4 limit.
+
+        Returns
+        -------
+        list[str]
+            Up to *top_n* correctly spelled words ordered best-first.
+            Empty list when the Soundex bucket is empty or no candidate
+            survives the distance filter.
+        """
+        if top_n <= 0:
+            return []
+
+        query = word.lower()
+        pool = self.soundex_candidates(query)
+        if not pool:
+            return []
+
+        qlen = len(query)
+        scored: list[tuple[float, int, str]] = []  # (score, dist, word)
+
+        for candidate in pool:
+            # Cheap length pre-filter — no allocation, no C call.
+            if abs(len(candidate) - qlen) > _MAX_EDIT_DISTANCE:
+                continue
+
+            # score_cutoff lets rapidfuzz bail out early once distance
+            # exceeds the threshold, saving cycles on large buckets.
+            dist = _Levenshtein.distance(
+                query, candidate, score_cutoff=_MAX_EDIT_DISTANCE
+            )
+            if dist > _MAX_EDIT_DISTANCE:
+                continue
+
+            score = 1.0 - dist / max(qlen, len(candidate))
+            scored.append((score, dist, candidate))
+
+        # Highest score first; tie-break on shorter distance then
+        # alphabetical order (bucket is pre-sorted by SQL, so stable).
+        scored.sort(key=lambda t: (-t[0], t[1], t[2]))
+        return [cand for _, _, cand in scored[:top_n]]
 
     def __len__(self) -> int:
         return len(self._words)
