@@ -1,27 +1,27 @@
-import { useState } from 'react'
-import { Button } from '@/components/ui/button'
+import { useState } from "react"
+import { FileUploadZone } from "@/components/FileUploadZone"
 
 function App() {
-  const [count, setCount] = useState(0)
+  const [file, setFile] = useState<File | null>(null)
 
   return (
-    <main className="min-h-svh flex flex-col items-center justify-center gap-6 p-6 text-center">
-      <div>
+    <main className="min-h-svh flex flex-col items-center justify-center gap-6 p-6">
+      <div className="text-center">
         <h1 className="text-4xl font-semibold tracking-tight text-foreground">
           ParaSpell
         </h1>
         <p className="mt-2 text-sm text-muted-foreground">
-          Parallel Spell Checker — frontend hello world
+          Parallel Spell Checker
         </p>
       </div>
 
-      <div className="flex flex-col items-center gap-3">
-        <Button onClick={() => setCount((c) => c + 1)}>
-          Clicked {count} times
-        </Button>
-        <p className="text-xs text-muted-foreground">
-          Tailwind v4 + shadcn/ui Button is rendering.
-        </p>
+      <div className="w-full max-w-xl">
+        <FileUploadZone onFileSelect={(f) => setFile(f)} />
+        {file && (
+          <p className="mt-3 text-xs text-center text-muted-foreground">
+            Ready to check: <span className="text-foreground font-medium">{file.name}</span>
+          </p>
+        )}
       </div>
     </main>
   )
