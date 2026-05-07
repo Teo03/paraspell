@@ -12,7 +12,7 @@ const Spinner = () => (
 
 interface InputPaneProps {
   loading: boolean
-  onCheck: (text: string, file: File | null) => void
+  onCheck: (text: string) => void
 }
 
 export function InputPane({ loading, onCheck }: InputPaneProps) {
@@ -68,7 +68,7 @@ export function InputPane({ loading, onCheck }: InputPaneProps) {
             </span>
             <button
               disabled={wordCount === 0 || loading}
-              onClick={() => onCheck(text, null)}
+              onClick={() => onCheck(text)}
               className="px-4 py-1.5 text-sm font-medium rounded-md bg-primary text-primary-foreground
                 hover:bg-primary/90 transition-colors
                 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
@@ -96,7 +96,7 @@ export function InputPane({ loading, onCheck }: InputPaneProps) {
             </span>
             <button
               disabled={!file || loading}
-              onClick={() => onCheck("", file)}
+              onClick={() => onCheck("")}
               className="px-4 py-1.5 text-sm font-medium rounded-md bg-primary text-primary-foreground
                 hover:bg-primary/90 transition-colors
                 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
