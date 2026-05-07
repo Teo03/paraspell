@@ -7,6 +7,11 @@ function App() {
   const [file, setFile] = useState<File | null>(null)
   const [activeTab, setActiveTab] = useState<Tab>("paste")
   const [text, setText] = useState("")
+  const [stats, setStats] = useState<{ words: number | null; errors: number | null; time: number | null }>({
+    words: null,
+    errors: null,
+    time: null,
+  })
 
   const wordCount = text.trim() === "" ? 0 : text.trim().split(/\s+/).length
 
@@ -21,6 +26,27 @@ function App() {
       </header>
 
       <main className="flex-1 flex flex-col items-center p-6 gap-6">
+
+        {/* Stats Row */}
+        <div className="w-full max-w-xl grid grid-cols-3 gap-3 mb-2">
+          <div className="rounded-lg border p-3 text-center">
+            <p className="text-xs text-muted-foreground mb-1">Words Checked</p>
+            <p className="text-xl font-semibold">{stats.words ?? "—"}</p>
+          </div>
+          <div className="rounded-lg border p-3 text-center">
+            <p className="text-xs text-muted-foreground mb-1">Errors Found</p>
+            <p className={`text-xl font-semibold ${stats.errors !== null && stats.errors > 0 ? "text-red-500" : ""}`}>
+              {stats.errors ?? "—"}
+            </p>
+          </div>
+          <div className="rounded-lg border p-3 text-center">
+            <p className="text-xs text-muted-foreground mb-1">Processing Time</p>
+            <p className="text-xl font-semibold">
+              {stats.time !== null ? `${stats.time}s` : "—"}
+            </p>
+          </div>
+        </div>
+
         <div className="w-full max-w-xl">
 
           {/* Tab Toggle */}
