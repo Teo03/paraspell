@@ -17,7 +17,7 @@ function App() {
   const [stats, setStats] = useState<Stats>({ words: null, errors: null, time: null })
   const [resetKey, setResetKey] = useState(0)
 
-  const handleCheck = (text: string, _file: File | null) => {
+  const handleCheck = (text: string) => {
     const wordCount = text.trim() === "" ? 0 : text.trim().split(/\s+/).length
     setLoading(true)
     setHasChecked(true)
