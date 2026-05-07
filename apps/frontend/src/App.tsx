@@ -7,6 +7,7 @@ function App() {
   const [file, setFile] = useState<File | null>(null)
   const [activeTab, setActiveTab] = useState<Tab>("paste")
   const [text, setText] = useState("")
+  const [loading, setLoading] = useState(false)
   const [stats, setStats] = useState<{ words: number | null; errors: number | null; time: number | null }>({
     words: null,
     errors: null,
@@ -14,6 +15,13 @@ function App() {
   })
 
   const wordCount = text.trim() === "" ? 0 : text.trim().split(/\s+/).length
+
+  // Temporary test handler so we can verify loading states work
+  const handleCheck = () => {
+    setLoading(true)
+    setStats({ words: null, errors: null, time: null })
+    setTimeout(() => setLoading(false), 3000)
+  }
 
   return (
     <div className="min-h-svh flex flex-col bg-background">
@@ -31,18 +39,18 @@ function App() {
         <div className="w-full max-w-xl grid grid-cols-3 gap-3 mb-2">
           <div className="rounded-lg border p-3 text-center">
             <p className="text-xs text-muted-foreground mb-1">Words Checked</p>
-            <p className="text-xl font-semibold">{stats.words ?? "—"}</p>
+            <p className="text-xl font-semibold">{loading ? "—" : (stats.words ?? "—")}</p>
           </div>
           <div className="rounded-lg border p-3 text-center">
             <p className="text-xs text-muted-foreground mb-1">Errors Found</p>
-            <p className={`text-xl font-semibold ${stats.errors !== null && stats.errors > 0 ? "text-red-500" : ""}`}>
-              {stats.errors ?? "—"}
+            <p className={`text-xl font-semibold ${!loading && stats.errors !== null && stats.errors > 0 ? "text-red-500" : ""}`}>
+              {loading ? "—" : (stats.errors ?? "—")}
             </p>
           </div>
           <div className="rounded-lg border p-3 text-center">
             <p className="text-xs text-muted-foreground mb-1">Processing Time</p>
             <p className="text-xl font-semibold">
-              {stats.time !== null ? `${stats.time}s` : "—"}
+              {loading ? "—" : (stats.time !== null ? `${stats.time}s` : "—")}
             </p>
           </div>
         </div>
@@ -91,12 +99,21 @@ function App() {
                   {wordCount} {wordCount === 1 ? "word" : "words"}
                 </span>
                 <button
-                  disabled={wordCount === 0}
+                  disabled={wordCount === 0 || loading}
+                  onClick={handleCheck}
                   className="px-4 py-1.5 text-sm font-medium rounded-md bg-primary text-primary-foreground
                     hover:bg-primary/90 transition-colors
-                    disabled:opacity-50 disabled:cursor-not-allowed"
+                    disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
                 >
-                  Check Spelling
+                  {loading ? (
+                    <>
+                      <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4l3-3-3-3v4a8 8 0 00-8 8h4z" />
+                      </svg>
+                      Checking...
+                    </>
+                  ) : "Check Spelling"}
                 </button>
               </div>
             </div>
@@ -117,14 +134,33 @@ function App() {
                   {file ? "1 file selected" : "No file selected"}
                 </span>
                 <button
-                  disabled={!file}
+                  disabled={!file || loading}
+                  onClick={handleCheck}
                   className="px-4 py-1.5 text-sm font-medium rounded-md bg-primary text-primary-foreground
                     hover:bg-primary/90 transition-colors
-                    disabled:opacity-50 disabled:cursor-not-allowed"
+                    disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
                 >
-                  Check Spelling
+                  {loading ? (
+                    <>
+                      <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4l3-3-3-3v4a8 8 0 00-8 8h4z" />
+                      </svg>
+                      Checking...
+                    </>
+                  ) : "Check Spelling"}
                 </button>
               </div>
+            </div>
+          )}
+
+          {/* Results Skeleton */}
+          {loading && (
+            <div className="mt-4 rounded-lg border p-4 space-y-3">
+              <div className="h-3 bg-muted rounded animate-pulse w-3/4" />
+              <div className="h-3 bg-muted rounded animate-pulse w-full" />
+              <div className="h-3 bg-muted rounded animate-pulse w-5/6" />
+              <div className="h-3 bg-muted rounded animate-pulse w-2/3" />
             </div>
           )}
 
