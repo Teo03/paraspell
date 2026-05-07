@@ -12,7 +12,7 @@ interface ResultsPaneProps {
   onReset: () => void
 }
 
-export function ResultsPane({ loading, stats, text, onExport, onReset }: ResultsPaneProps) {
+export function ResultsPane({ loading, stats, onExport, onReset }: ResultsPaneProps) {
   if (loading) {
     return (
       <div className="rounded-lg border p-4 space-y-3">
