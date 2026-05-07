@@ -1,179 +1,75 @@
 import { useState } from "react"
-import { FileUploadZone } from "@/components/FileUploadZone"
+import { TopBar } from "@/components/TopBar"
+import { StatsRow } from "@/components/StatsRow"
+import { InputPane } from "@/components/InputPane"
+import { ResultsPane } from "@/components/ResultsPane"
 
-type Tab = "paste" | "upload"
+interface Stats {
+  words: number | null
+  errors: number | null
+  time: number | null
+}
 
 function App() {
-  const [file, setFile] = useState<File | null>(null)
-  const [activeTab, setActiveTab] = useState<Tab>("paste")
-  const [text, setText] = useState("")
   const [loading, setLoading] = useState(false)
-  const [stats, setStats] = useState<{ words: number | null; errors: number | null; time: number | null }>({
-    words: null,
-    errors: null,
-    time: null,
-  })
+  const [hasChecked, setHasChecked] = useState(false)
+  const [checkedText, setCheckedText] = useState("")
+  const [stats, setStats] = useState<Stats>({ words: null, errors: null, time: null })
+  const [resetKey, setResetKey] = useState(0)
 
-  const wordCount = text.trim() === "" ? 0 : text.trim().split(/\s+/).length
-
-  const handleCheck = () => {
+  const handleCheck = (text: string, file: File | null) => {
+    const wordCount = text.trim() === "" ? 0 : text.trim().split(/\s+/).length
     setLoading(true)
+    setHasChecked(true)
+    setCheckedText(text)
     setStats({ words: null, errors: null, time: null })
-    setTimeout(() => setLoading(false), 3000)
+    setTimeout(() => {
+      setLoading(false)
+      setStats({ words: wordCount, errors: 0, time: 0.5 })
+    }, 3000)
+  }
+
+  const handleExport = () => {
+    const blob = new Blob([checkedText], { type: "text/plain" })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement("a")
+    a.href = url
+    a.download = "corrected.txt"
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  const handleReset = () => {
+    setLoading(false)
+    setHasChecked(false)
+    setCheckedText("")
+    setStats({ words: null, errors: null, time: null })
+    setResetKey((k) => k + 1)
   }
 
   return (
     <div className="min-h-svh flex flex-col bg-background">
-      {/* Top Bar */}
-      <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-        <div className="px-6 h-14 flex flex-col justify-center">
-          <span className="text-lg font-semibold tracking-tight leading-none">ParaSpell</span>
-          <span className="text-xs text-muted-foreground leading-none mt-0.5">Parallel Spell Checker</span>
-        </div>
-      </header>
+      <TopBar />
 
       <main className="flex-1 flex flex-col p-6 gap-6">
+        <StatsRow stats={stats} loading={loading} />
 
-        {/* Stats Row */}
-        <div className="grid grid-cols-3 gap-3">
-          <div className="rounded-lg border p-3 text-center">
-            <p className="text-xs text-muted-foreground mb-1">Words Checked</p>
-            <p className="text-xl font-semibold">{loading ? "—" : (stats.words ?? "—")}</p>
-          </div>
-          <div className="rounded-lg border p-3 text-center">
-            <p className="text-xs text-muted-foreground mb-1">Errors Found</p>
-            <p className={`text-xl font-semibold ${!loading && stats.errors !== null && stats.errors > 0 ? "text-red-500" : ""}`}>
-              {loading ? "—" : (stats.errors ?? "—")}
-            </p>
-          </div>
-          <div className="rounded-lg border p-3 text-center">
-            <p className="text-xs text-muted-foreground mb-1">Processing Time</p>
-            <p className="text-xl font-semibold">
-              {loading ? "—" : (stats.time !== null ? `${stats.time}s` : "—")}
-            </p>
-          </div>
-        </div>
-
-        {/* Two-pane layout */}
         <div className="flex flex-col md:flex-row gap-6 flex-1">
+          <div className={`w-full ${hasChecked ? "md:w-1/2" : "md:max-w-xl md:mx-auto"}`}>
+            <InputPane key={resetKey} loading={loading} onCheck={handleCheck} />
+          </div>
 
-          {/* Left pane — Input */}
-          <div className="w-full md:w-1/2">
-
-            {/* Tab Toggle */}
-            <div className="flex rounded-lg border overflow-hidden mb-4" role="tablist">
-              <button
-                role="tab"
-                aria-selected={activeTab === "paste"}
-                onClick={() => setActiveTab("paste")}
-                onKeyDown={(e) => e.key === "ArrowRight" && setActiveTab("upload")}
-                className={`flex-1 py-2 text-sm font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring
-                  ${activeTab === "paste"
-                    ? "bg-primary text-primary-foreground"
-                    : "bg-background text-muted-foreground hover:text-foreground hover:bg-muted"}`}
-              >
-                Paste Text
-              </button>
-              <button
-                role="tab"
-                aria-selected={activeTab === "upload"}
-                onClick={() => setActiveTab("upload")}
-                onKeyDown={(e) => e.key === "ArrowLeft" && setActiveTab("paste")}
-                className={`flex-1 py-2 text-sm font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring
-                  ${activeTab === "upload"
-                    ? "bg-primary text-primary-foreground"
-                    : "bg-background text-muted-foreground hover:text-foreground hover:bg-muted"}`}
-              >
-                Upload File
-              </button>
+          {hasChecked && (
+            <div className="w-full md:w-1/2">
+              <ResultsPane
+                loading={loading}
+                stats={stats}
+                text={checkedText}
+                onExport={handleExport}
+                onReset={handleReset}
+              />
             </div>
-
-            {/* Tab Content */}
-            {activeTab === "paste" && (
-              <div className="rounded-lg border overflow-hidden">
-                <textarea
-                  className="w-full h-64 p-4 font-mono text-sm bg-background text-foreground resize-none focus:outline-none placeholder:text-muted-foreground"
-                  placeholder="Paste or type your text here..."
-                  value={text}
-                  onChange={(e) => setText(e.target.value)}
-                />
-                <div className="px-4 py-2 border-t flex items-center justify-between">
-                  <span className="text-xs text-muted-foreground">
-                    {wordCount} {wordCount === 1 ? "word" : "words"}
-                  </span>
-                  <button
-                    disabled={wordCount === 0 || loading}
-                    onClick={handleCheck}
-                    className="px-4 py-1.5 text-sm font-medium rounded-md bg-primary text-primary-foreground
-                      hover:bg-primary/90 transition-colors
-                      disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-                  >
-                    {loading ? (
-                      <>
-                        <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none">
-                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4l3-3-3-3v4a8 8 0 00-8 8h4z" />
-                        </svg>
-                        Checking...
-                      </>
-                    ) : "Check Spelling"}
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {activeTab === "upload" && (
-              <div className="rounded-lg border overflow-hidden">
-                <div className="p-4">
-                  <FileUploadZone onFileSelect={(f) => setFile(f)} />
-                  {file && (
-                    <p className="mt-3 text-xs text-center text-muted-foreground">
-                      Ready to check: <span className="text-foreground font-medium">{file.name}</span>
-                    </p>
-                  )}
-                </div>
-                <div className="px-4 py-2 border-t flex items-center justify-between">
-                  <span className="text-xs text-muted-foreground">
-                    {file ? "1 file selected" : "No file selected"}
-                  </span>
-                  <button
-                    disabled={!file || loading}
-                    onClick={handleCheck}
-                    className="px-4 py-1.5 text-sm font-medium rounded-md bg-primary text-primary-foreground
-                      hover:bg-primary/90 transition-colors
-                      disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-                  >
-                    {loading ? (
-                      <>
-                        <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none">
-                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4l3-3-3-3v4a8 8 0 00-8 8h4z" />
-                        </svg>
-                        Checking...
-                      </>
-                    ) : "Check Spelling"}
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Right pane — Results */}
-          <div className="w-full md:w-1/2">
-            {loading ? (
-              <div className="rounded-lg border p-4 space-y-3">
-                <div className="h-3 bg-muted rounded animate-pulse w-3/4" />
-                <div className="h-3 bg-muted rounded animate-pulse w-full" />
-                <div className="h-3 bg-muted rounded animate-pulse w-5/6" />
-                <div className="h-3 bg-muted rounded animate-pulse w-2/3" />
-              </div>
-            ) : (
-              <div className="rounded-lg border p-4 h-full flex items-center justify-center text-sm text-muted-foreground">
-                Results will appear here
-              </div>
-            )}
-          </div>
-
+          )}
         </div>
       </main>
     </div>
