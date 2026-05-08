@@ -111,7 +111,7 @@ def _extract_docx(content: bytes) -> str:
     text-boxes are out of scope for v1.0 but can be added here without
     touching the router or engine layers.
     """
-    import docx  
+    import docx
     # python-docx; imported lazily so the module loads even if
     # the package is absent in test environments that mock it.
 
