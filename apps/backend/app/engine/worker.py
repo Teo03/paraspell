@@ -67,12 +67,12 @@ def process_chunk(
     chunk: list[tuple[str, int]],
     dictionary: Dictionary,
 ) -> list[Correction]:
-    """Check a chunk of ``(word, offset)`` pairs and return corrections.
+    """Check a chunk of ``(word, offset)`` pairs with fault tolerance (NFR-07).
 
     Parameters
     ----------
     chunk:
-        Tokens this worker is responsible for. The chunk is already lower-
+        Tokens this worker is responsible for. The chunk is already load-
         balanced by ``checker.SpellChecker._split`` so workers finish at
         roughly the same time.
     dictionary:
@@ -82,16 +82,40 @@ def process_chunk(
     -------
     list[Correction]
         One entry per misspelled word in *chunk*. Order matches input order.
+        On partial failure, returns corrections found before the error.
+        Never raises; always returns a valid list.
     """
+    import logging
+
+    logger = logging.getLogger(__name__)
     corrections: list[Correction] = []
 
-    for word, offset in chunk:
-        if dictionary.contains(word):
-            continue
+    try:
+        for word, offset in chunk:
+            try:
+                if dictionary.contains(word):
+                    continue
 
-        suggestions = _rank_suggestions(word, dictionary)
-        corrections.append(
-            Correction(original=word, offset=offset, suggestions=suggestions)
+                suggestions = _rank_suggestions(word, dictionary)
+                corrections.append(
+                    Correction(original=word, offset=offset, suggestions=suggestions)
+                )
+            except Exception as e:
+                # Log the error for this individual word but continue processing
+                logger.warning(
+                    "Failed to process word '%s' at offset %d: %s",
+                    word,
+                    offset,
+                    e,
+                )
+                continue
+    except Exception as e:
+        # Catch any unexpected errors (e.g., from Dictionary initialization)
+        # Log and return partial results instead of raising
+        logger.exception(
+            "Chunk processing failed after %d corrections found: %s",
+            len(corrections),
+            e,
         )
 
     return corrections
