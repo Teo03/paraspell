@@ -41,7 +41,7 @@ class SpellChecker:
     def __init__(self) -> None:
         self._dictionary = Dictionary()
         self._worker_count = self._resolve_int("WORKER_COUNT", os.cpu_count() or 1)
-        self._chunk_size = self._resolve_int("CHUNK_SIZE", 0)  # 0 → auto
+        self._chunk_size = self._resolve_int("CHUNK_SIZE", 0)  # 0 -> auto
         self._executor = ProcessPoolExecutor(max_workers=self._worker_count)
         logger.info(
             "SpellChecker initialized with %d workers, chunk_size=%s",

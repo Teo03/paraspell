@@ -15,7 +15,7 @@ class SpellCheckRequest(BaseModel):
 
 class Suggestion(BaseModel):
     word: str = Field(..., description="Candidate correction.")
-    score: float = Field(..., ge=0.0, le=1.0, description="Confidence score (0–1).")
+    score: float = Field(..., ge=0.0, le=1.0, description="Confidence score (0\u20131).")
 
 
 class Correction(BaseModel):
