@@ -31,6 +31,10 @@ class Correction(BaseModel):
 class SpellCheckResponse(BaseModel):
     word_count: int = Field(..., ge=0, description="Total words processed.")
     error_count: int = Field(..., ge=0, description="Number of misspelled words found.")
+    processing_time: float = Field(
+        ..., ge=0.0,
+        description="Server-side processing time in seconds (FR-20).",
+    )
     corrections: list[Correction] = Field(
         default_factory=list,
         description="One entry per misspelled word.",
