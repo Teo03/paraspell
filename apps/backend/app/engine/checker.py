@@ -19,6 +19,7 @@ import logging
 import math
 import os
 import re
+import time
 from concurrent.futures import ProcessPoolExecutor
 
 from app.engine.dictionary import Dictionary
@@ -40,7 +41,7 @@ class SpellChecker:
     def __init__(self) -> None:
         self._dictionary = Dictionary()
         self._worker_count = self._resolve_int("WORKER_COUNT", os.cpu_count() or 1)
-        self._chunk_size = self._resolve_int("CHUNK_SIZE", 0)  # 0 → auto
+        self._chunk_size = self._resolve_int("CHUNK_SIZE", 0)  # 0 -> auto
         self._executor = ProcessPoolExecutor(max_workers=self._worker_count)
         logger.info(
             "SpellChecker initialized with %d workers, chunk_size=%s",
@@ -53,10 +54,13 @@ class SpellChecker:
     # ------------------------------------------------------------------
 
     async def check(self, text: str) -> SpellCheckResponse:
-        """Spell-check *text* and return a structured response (FR-06, FR-07, NFR-07).
+        """Spell-check *text* and return a structured response (FR-06, FR-07, NFR-07, FR-20).
 
         Parallelizes processing across worker pool, handles failures gracefully.
+        Measures and returns server-side processing time in seconds (FR-20).
         """
+        t_start = time.perf_counter()
+
         tokens = self._tokenise(text)
         chunks = self._split(tokens)
 
@@ -65,6 +69,7 @@ class SpellChecker:
             return SpellCheckResponse(
                 word_count=0,
                 error_count=0,
+                processing_time=round(time.perf_counter() - t_start, 4),
                 corrections=[],
             )
 
@@ -98,6 +103,7 @@ class SpellChecker:
         return SpellCheckResponse(
             word_count=len(tokens),
             error_count=len(corrections),
+            processing_time=round(time.perf_counter() - t_start, 4),
             corrections=corrections,
         )
 
