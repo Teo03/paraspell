@@ -110,38 +110,55 @@
 //   )
 // }
 
+import { useState } from "react";
+import { FileUploadZone } from "@/components/FileUploadZone";
 
-import { useState } from "react"
-import { FileUploadZone } from "@/components/FileUploadZone"
-
-type Tab = "paste" | "upload"
+type Tab = "paste" | "upload";
 
 const Spinner = () => (
   <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none">
-    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4l3-3-3-3v4a8 8 0 00-8 8h4z" />
+    <circle
+      className="opacity-25"
+      cx="12"
+      cy="12"
+      r="10"
+      stroke="currentColor"
+      strokeWidth="4"
+    />
+    <path
+      className="opacity-75"
+      fill="currentColor"
+      d="M4 12a8 8 0 018-8v4l3-3-3-3v4a8 8 0 00-8 8h4z"
+    />
   </svg>
-)
+);
 
 interface InputPaneProps {
-  loading: boolean
-  onCheck: (text: string) => void
-  fullHeight?: boolean
+  loading: boolean;
+  onCheck: (text: string) => void;
+  fullHeight?: boolean;
+  onFileSelect?: (file: File | null) => void;
 }
 
-export function InputPane({ loading, onCheck, fullHeight = false }: InputPaneProps) {
-  const [activeTab, setActiveTab] = useState<Tab>("paste")
-  const [text, setText] = useState("")
-  const [file, setFile] = useState<File | null>(null)
+export function InputPane({
+  loading,
+  onCheck,
+  onFileSelect,
+  fullHeight = false,
+}: InputPaneProps) {
+  const [activeTab, setActiveTab] = useState<Tab>("paste");
+  const [text, setText] = useState("");
+  const [file, setFile] = useState<File | null>(null);
 
-  const wordCount = text.trim() === "" ? 0 : text.trim().split(/\s+/).length
+  const wordCount = text.trim() === "" ? 0 : text.trim().split(/\s+/).length;
 
   const tabClass = (active: boolean) =>
     `flex-1 py-2 text-xs tracking-widest uppercase transition-all duration-200 focus:outline-none
-    ${active
-      ? "bg-primary text-primary-foreground glow"
-      : "bg-transparent text-muted-foreground hover:text-primary border-r border-border last:border-r-0"
-    }`
+    ${
+      active
+        ? "bg-primary text-primary-foreground glow"
+        : "bg-transparent text-muted-foreground hover:text-primary border-r border-border last:border-r-0"
+    }`;
 
   const checkBtnClass = `
     px-5 py-1.5 text-xs font-bold tracking-widest uppercase
@@ -149,13 +166,18 @@ export function InputPane({ loading, onCheck, fullHeight = false }: InputPanePro
     hover:bg-primary/80 transition-all duration-200
     disabled:opacity-30 disabled:cursor-not-allowed
     flex items-center gap-2 glow
-  `
+  `;
 
   return (
-    <div className="w-full flex flex-col" style={{ fontFamily: "'Share Tech Mono', monospace" }}>
-
+    <div
+      className="w-full flex flex-col"
+      style={{ fontFamily: "'Share Tech Mono', monospace" }}
+    >
       {/* Tab Toggle */}
-      <div className="flex border border-border overflow-hidden mb-4" role="tablist">
+      <div
+        className="flex border border-border overflow-hidden mb-4"
+        role="tablist"
+      >
         <button
           role="tab"
           aria-selected={activeTab === "paste"}
@@ -190,8 +212,18 @@ export function InputPane({ loading, onCheck, fullHeight = false }: InputPanePro
             <span className="text-xs text-muted-foreground tracking-widest">
               {String(wordCount).padStart(4, "0")} WORDS
             </span>
-            <button disabled={wordCount === 0 || loading} onClick={() => onCheck(text)} className={checkBtnClass}>
-              {loading ? <><Spinner /> Processing...</> : "▶ Run Check"}
+            <button
+              disabled={wordCount === 0 || loading}
+              onClick={() => onCheck(text)}
+              className={checkBtnClass}
+            >
+              {loading ? (
+                <>
+                  <Spinner /> Processing...
+                </>
+              ) : (
+                "▶ Run Check"
+              )}
             </button>
           </div>
         </div>
@@ -200,8 +232,15 @@ export function InputPane({ loading, onCheck, fullHeight = false }: InputPanePro
       {/* Upload File Tab */}
       {activeTab === "upload" && (
         <div className="cyber-border bg-card overflow-hidden flex flex-col">
-          <div className={`p-4 flex flex-col justify-center ${fullHeight ? "min-h-[40vh]" : "min-h-[200px]"}`}>
-            <FileUploadZone onFileSelect={(f) => setFile(f)} />
+          <div
+            className={`p-4 flex flex-col justify-center ${fullHeight ? "min-h-[40vh]" : "min-h-[200px]"}`}
+          >
+            <FileUploadZone
+              onFileSelect={(f) => {
+                setFile(f);
+                onFileSelect?.(f);
+              }}
+            />
             {file && (
               <p className="mt-3 text-xs text-center text-muted-foreground tracking-widest">
                 LOADED: <span className="text-primary">{file.name}</span>
@@ -212,12 +251,22 @@ export function InputPane({ loading, onCheck, fullHeight = false }: InputPanePro
             <span className="text-xs text-muted-foreground tracking-widest">
               {file ? "1 FILE QUEUED" : "NO FILE"}
             </span>
-            <button disabled={!file || loading} onClick={() => onCheck("")} className={checkBtnClass}>
-              {loading ? <><Spinner /> Processing...</> : "▶ Run Check"}
+            <button
+              disabled={!file || loading}
+              onClick={() => onCheck("")}
+              className={checkBtnClass}
+            >
+              {loading ? (
+                <>
+                  <Spinner /> Processing...
+                </>
+              ) : (
+                "▶ Run Check"
+              )}
             </button>
           </div>
         </div>
       )}
     </div>
-  )
+  );
 }

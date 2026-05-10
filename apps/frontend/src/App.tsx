@@ -1,170 +1,182 @@
-// import { useState } from "react"
-// import { TopBar } from "@/components/TopBar"
-// import { StatsRow } from "@/components/StatsRow"
-// import { InputPane } from "@/components/InputPane"
-// import { ResultsPane } from "@/components/ResultsPane"
-
-// interface Stats {
-//   words: number | null
-//   errors: number | null
-//   time: number | null
-// }
-
-// function App() {
-//   const [loading, setLoading] = useState(false)
-//   const [hasChecked, setHasChecked] = useState(false)
-//   const [checkedText, setCheckedText] = useState("")
-//   const [stats, setStats] = useState<Stats>({ words: null, errors: null, time: null })
-//   const [resetKey, setResetKey] = useState(0)
-
-//   const handleCheck = (text: string) => {
-//     const wordCount = text.trim() === "" ? 0 : text.trim().split(/\s+/).length
-//     setLoading(true)
-//     setHasChecked(true)
-//     setCheckedText(text)
-//     setStats({ words: null, errors: null, time: null })
-//     setTimeout(() => {
-//       setLoading(false)
-//       setStats({ words: wordCount, errors: 0, time: 0.5 })
-//     }, 3000)
-//   }
-
-//   const handleExport = () => {
-//     const blob = new Blob([checkedText], { type: "text/plain" })
-//     const url = URL.createObjectURL(blob)
-//     const a = document.createElement("a")
-//     a.href = url
-//     a.download = "corrected.txt"
-//     a.click()
-//     URL.revokeObjectURL(url)
-//   }
-
-//   const handleReset = () => {
-//     setLoading(false)
-//     setHasChecked(false)
-//     setCheckedText("")
-//     setStats({ words: null, errors: null, time: null })
-//     setResetKey((k) => k + 1)
-//   }
-
-//   return (
-//     <div className="min-h-svh flex flex-col bg-background">
-//       <TopBar />
-
-//       <main className="flex-1 flex flex-col p-6 gap-6">
-//         <StatsRow stats={stats} loading={loading} />
-
-//         <div className="flex flex-col md:flex-row gap-6 flex-1">
-//           <div className={`w-full ${hasChecked ? "md:w-1/2" : "md:max-w-xl md:mx-auto"}`}>
-//             <InputPane key={resetKey} loading={loading} onCheck={handleCheck} />
-//           </div>
-
-//           {hasChecked && (
-//             <div className="w-full md:w-1/2">
-//               <ResultsPane
-//                 loading={loading}
-//                 stats={stats}
-//                 text={checkedText}
-//                 onExport={handleExport}
-//                 onReset={handleReset}
-//               />
-//             </div>
-//           )}
-//         </div>
-//       </main>
-//     </div>
-//   )
-// }
-
-// export default App
-
-
-import { useState } from "react"
-import { TopBar } from "@/components/TopBar"
-import { StatsRow } from "@/components/StatsRow"
-import { InputPane } from "@/components/InputPane"
-import { ResultsPane } from "@/components/ResultsPane"
+import { useState } from "react";
+import { TopBar } from "@/components/TopBar";
+import { StatsRow } from "@/components/StatsRow";
+import { InputPane } from "@/components/InputPane";
+import { ResultsPane } from "@/components/ResultsPane";
 
 interface Stats {
-  words: number | null
-  errors: number | null
-  time: number | null
+  words: number | null;
+  errors: number | null;
+  time: number | null;
+}
+
+export interface Suggestion {
+  word: string;
+  score: number;
+}
+
+export interface Correction {
+  original: string;
+  offset: number;
+  suggestions: Suggestion[];
 }
 
 function App() {
-  const [loading, setLoading] = useState(false)
-  const [hasChecked, setHasChecked] = useState(false)
-  const [checkedText, setCheckedText] = useState("")
-  const [stats, setStats] = useState<Stats>({ words: null, errors: null, time: null })
-  const [resetKey, setResetKey] = useState(0)
+  const [loading, setLoading] = useState(false);
+  const [hasChecked, setHasChecked] = useState(false);
+  const [checkedText, setCheckedText] = useState("");
+  const [stats, setStats] = useState<Stats>({
+    words: null,
+    errors: null,
+    time: null,
+  });
+  const [corrections, setCorrections] = useState<Correction[]>([]);
+  const [resetKey, setResetKey] = useState(0);
+  const [originalFileName, setOriginalFileName] = useState<string | null>(null);
 
-  const handleCheck = (text: string) => {
-    const wordCount = text.trim() === "" ? 0 : text.trim().split(/\s+/).length
-    setLoading(true)
-    setHasChecked(true)
-    setCheckedText(text)
-    setStats({ words: null, errors: null, time: null })
-    setTimeout(() => {
-      setLoading(false)
-      setStats({ words: wordCount, errors: 0, time: 0.5 })
-    }, 3000)
-  }
+  const handleCheck = async (text: string) => {
+    setLoading(true);
+    setHasChecked(true);
+    setCheckedText(text);
+    setStats({ words: null, errors: null, time: null });
+    setCorrections([]);
+
+    const start = Date.now();
+
+    try {
+      const res = await fetch("http://localhost:8000/check/text", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text }),
+      });
+
+      const data = await res.json();
+      const elapsed = ((Date.now() - start) / 1000).toFixed(1);
+
+      setStats({
+        words: data.word_count,
+        errors: data.error_count,
+        time: data.processing_time ?? parseFloat(elapsed),
+      });
+      setCorrections(data.corrections ?? []);
+    } catch (err) {
+      console.error("API error:", err);
+      setStats({ words: 0, errors: 0, time: 0 });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleApplyCorrection = (offset: number, newWord: string) => {
+    // Replace the word at offset in checkedText
+    const correction = corrections.find((c) => c.offset === offset);
+    if (!correction) return;
+
+    const before = checkedText.slice(0, offset);
+    const after = checkedText.slice(offset + correction.original.length);
+    const newText = before + newWord + after;
+
+    setCheckedText(newText);
+    setCorrections((prev) => prev.filter((c) => c.offset !== offset));
+    setStats((prev) => ({
+      ...prev,
+      errors: prev.errors !== null ? Math.max(0, prev.errors - 1) : null,
+    }));
+  };
+
+  const handleIgnore = (offset: number) => {
+    setCorrections((prev) => prev.filter((c) => c.offset !== offset));
+    setStats((prev) => ({
+      ...prev,
+      errors: prev.errors !== null ? Math.max(0, prev.errors - 1) : null,
+    }));
+  };
+
+  const handleApplyAll = () => {
+    let text = checkedText;
+    // Apply from end to start to preserve offsets
+    const sorted = [...corrections].sort((a, b) => b.offset - a.offset);
+    for (const c of sorted) {
+      if (c.suggestions.length > 0) {
+        const before = text.slice(0, c.offset);
+        const after = text.slice(c.offset + c.original.length);
+        text = before + c.suggestions[0].word + after;
+      }
+    }
+    setCheckedText(text);
+    setCorrections([]);
+    setStats((prev) => ({ ...prev, errors: 0 }));
+  };
 
   const handleExport = () => {
-    const blob = new Blob([checkedText], { type: "text/plain" })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement("a")
-    a.href = url
-    a.download = "corrected.txt"
-    a.click()
-    URL.revokeObjectURL(url)
-  }
+    const baseName = originalFileName
+      ? originalFileName.replace(/\.[^/.]+$/, "")
+      : "corrected";
+    const blob = new Blob([checkedText], { type: "text/plain" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `corrected_${baseName}.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
 
   const handleReset = () => {
-    setLoading(false)
-    setHasChecked(false)
-    setCheckedText("")
-    setStats({ words: null, errors: null, time: null })
-    setResetKey((k) => k + 1)
-  }
+    setLoading(false);
+    setHasChecked(false);
+    setCheckedText("");
+    setStats({ words: null, errors: null, time: null });
+    setCorrections([]);
+    setResetKey((k) => k + 1);
+  };
 
   return (
     <div className="min-h-svh flex flex-col bg-background">
       <TopBar />
 
       <main className="flex-1 flex flex-col p-6 gap-6">
-
-        {/* Stats Row — only after first check */}
         {hasChecked && <StatsRow stats={stats} loading={loading} />}
 
         {!hasChecked ? (
-          /* Before check: centered 80% width card */
           <div className="flex-1 flex flex-col items-center justify-center">
             <div className="w-[80%]">
-              <InputPane key={resetKey} loading={loading} onCheck={handleCheck} fullHeight />
+              <InputPane
+                key={resetKey}
+                loading={loading}
+                onCheck={handleCheck}
+                onFileSelect={(file) => setOriginalFileName(file?.name ?? null)}
+                fullHeight
+              />
             </div>
           </div>
         ) : (
-          /* After check: two pane layout */
           <div className="flex flex-col md:flex-row gap-6 flex-1">
             <div className="w-full md:w-1/2">
-              <InputPane key={resetKey} loading={loading} onCheck={handleCheck} />
+              <InputPane
+                key={resetKey}
+                loading={loading}
+                onCheck={handleCheck}
+                onFileSelect={(file) => setOriginalFileName(file?.name ?? null)}
+              />
             </div>
             <div className="w-full md:w-1/2">
               <ResultsPane
                 loading={loading}
                 stats={stats}
                 text={checkedText}
+                corrections={corrections}
+                onApplyCorrection={handleApplyCorrection}
+                onIgnore={handleIgnore}
+                onApplyAll={handleApplyAll}
                 onExport={handleExport}
                 onReset={handleReset}
               />
             </div>
           </div>
         )}
-
       </main>
     </div>
-  )
+  );
 }
 
-export default App
+export default App;
