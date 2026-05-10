@@ -34,7 +34,7 @@ function App() {
   const [resetKey, setResetKey] = useState(0);
   const [originalFileName, setOriginalFileName] = useState<string | null>(null);
 
-  const handleCheck = async (text: string) => {
+  const handleCheck = async (text: string, file?: File | null) => {
     setLoading(true);
     setHasChecked(true);
     setCheckedText(text);
@@ -44,11 +44,22 @@ function App() {
     const start = Date.now();
 
     try {
-      const res = await fetch("http://localhost:8000/check/text", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text }),
-      });
+      let res: Response;
+
+      if (file) {
+        const formData = new FormData();
+        formData.append("file", file);
+        res = await fetch("http://localhost:8000/check/file", {
+          method: "POST",
+          body: formData,
+        });
+      } else {
+        res = await fetch("http://localhost:8000/check/text", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text }),
+        });
+      }
 
       const data = await res.json();
       const elapsed = ((Date.now() - start) / 1000).toFixed(1);
@@ -58,6 +69,7 @@ function App() {
         errors: data.error_count,
         time: data.processing_time ?? parseFloat(elapsed),
       });
+      setCheckedText(data.extracted_text || text);
       setCorrections(data.corrections ?? []);
     } catch (err) {
       console.error("API error:", err);
@@ -68,7 +80,6 @@ function App() {
   };
 
   const handleApplyCorrection = (offset: number, newWord: string) => {
-    // Replace the word at offset in checkedText
     const correction = corrections.find((c) => c.offset === offset);
     if (!correction) return;
 
@@ -94,7 +105,6 @@ function App() {
 
   const handleApplyAll = () => {
     let text = checkedText;
-    // Apply from end to start to preserve offsets
     const sorted = [...corrections].sort((a, b) => b.offset - a.offset);
     for (const c of sorted) {
       if (c.suggestions.length > 0) {
@@ -134,46 +144,43 @@ function App() {
     <div className="min-h-svh flex flex-col bg-background">
       <TopBar />
 
-      <main className="flex-1 flex flex-col p-6 gap-6">
-        {hasChecked && <StatsRow stats={stats} loading={loading} />}
+      <main className="flex-1 flex flex-col items-center p-6 gap-6">
 
-        {!hasChecked ? (
-          <div className="flex-1 flex flex-col items-center justify-center">
-            <div className="w-[80%]">
-              <InputPane
-                key={resetKey}
-                loading={loading}
-                onCheck={handleCheck}
-                onFileSelect={(file) => setOriginalFileName(file?.name ?? null)}
-                fullHeight
-              />
-            </div>
-          </div>
-        ) : (
-          <div className="flex flex-col md:flex-row gap-6 flex-1">
-            <div className="w-full md:w-1/2">
-              <InputPane
-                key={resetKey}
-                loading={loading}
-                onCheck={handleCheck}
-                onFileSelect={(file) => setOriginalFileName(file?.name ?? null)}
-              />
-            </div>
-            <div className="w-full md:w-1/2">
-              <ResultsPane
-                loading={loading}
-                stats={stats}
-                text={checkedText}
-                corrections={corrections}
-                onApplyCorrection={handleApplyCorrection}
-                onIgnore={handleIgnore}
-                onApplyAll={handleApplyAll}
-                onExport={handleExport}
-                onReset={handleReset}
-              />
-            </div>
+        {/* Input — always centered at 80% */}
+        <div className="w-[80%]">
+          <InputPane
+            key={resetKey}
+            loading={loading}
+            onCheck={handleCheck}
+            onFileSelect={(file) => setOriginalFileName(file?.name ?? null)}
+            fullHeight={!hasChecked}
+          />
+        </div>
+
+        {/* Stats — appears below input after first check */}
+        {hasChecked && (
+          <div className="w-[80%]">
+            <StatsRow stats={stats} loading={loading} />
           </div>
         )}
+
+        {/* Results — appears below stats after first check */}
+        {hasChecked && (
+          <div className="w-[80%]">
+            <ResultsPane
+              loading={loading}
+              stats={stats}
+              text={checkedText}
+              corrections={corrections}
+              onApplyCorrection={handleApplyCorrection}
+              onIgnore={handleIgnore}
+              onApplyAll={handleApplyAll}
+              onExport={handleExport}
+              onReset={handleReset}
+            />
+          </div>
+        )}
+
       </main>
     </div>
   );
