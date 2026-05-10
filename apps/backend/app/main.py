@@ -8,6 +8,7 @@ Run via Uvicorn (see Dockerfile CMD):
 
 from __future__ import annotations
 
+import logging
 import os
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
@@ -18,11 +19,21 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.engine.checker import get_checker
 from app.routers import health, spell
 
+logger = logging.getLogger(__name__)
+
 
 @asynccontextmanager
 async def lifespan(application: FastAPI) -> AsyncGenerator[None, None]:
-    get_checker()
+    """FastAPI lifespan: startup and shutdown handlers."""
+    # Startup: initialize the spell checker
+    logger.info("Starting up ParaSpell API...")
+    checker = get_checker()
+    logger.info("SpellChecker initialized.")
     yield
+    # Shutdown: cleanup executor
+    logger.info("Shutting down ParaSpell API...")
+    checker.shutdown()
+    logger.info("ParaSpell API shutdown complete.")
 
 
 def create_app() -> FastAPI:
