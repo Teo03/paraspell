@@ -79,21 +79,30 @@ function App() {
     }
   };
 
-  const handleApplyCorrection = (offset: number, newWord: string) => {
-    const correction = corrections.find((c) => c.offset === offset);
-    if (!correction) return;
+const handleApplyCorrection = (offset: number, newWord: string) => {
+  const correction = corrections.find((c) => c.offset === offset);
+  if (!correction) return;
 
-    const before = checkedText.slice(0, offset);
-    const after = checkedText.slice(offset + correction.original.length);
-    const newText = before + newWord + after;
+  const before = checkedText.slice(0, offset);
+  const after = checkedText.slice(offset + correction.original.length);
+  const newText = before + newWord + after;
 
-    setCheckedText(newText);
-    setCorrections((prev) => prev.filter((c) => c.offset !== offset));
-    setStats((prev) => ({
-      ...prev,
-      errors: prev.errors !== null ? Math.max(0, prev.errors - 1) : null,
+  // Recalculate offsets for remaining corrections
+  const diff = newWord.length - correction.original.length;
+  const updatedCorrections = corrections
+    .filter((c) => c.offset !== offset)
+    .map((c) => ({
+      ...c,
+      offset: c.offset > offset ? c.offset + diff : c.offset,
     }));
-  };
+
+  setCheckedText(newText);
+  setCorrections(updatedCorrections);
+  setStats((prev) => ({
+    ...prev,
+    errors: prev.errors !== null ? Math.max(0, prev.errors - 1) : null,
+  }));
+};
 
   const handleIgnore = (offset: number) => {
     setCorrections((prev) => prev.filter((c) => c.offset !== offset));
