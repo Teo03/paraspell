@@ -3,7 +3,7 @@
 # Installs Python packages into an isolated prefix so the final image
 # receives only the compiled wheels, not pip/setuptools/build tooling.
 # ──────────────────────────────────────────────────────────────────────────────
-FROM python:3.10-slim AS builder
+FROM python:3.12-slim AS builder
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -19,16 +19,18 @@ RUN pip install --prefix=/install -r requirements.txt
 # ──────────────────────────────────────────────────────────────────────────────
 # Stage 2 — runtime image
 # ──────────────────────────────────────────────────────────────────────────────
-FROM python:3.10-slim AS runtime
+FROM python:3.12-slim AS runtime
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PYTHONPATH=/app
+    PYTHONPATH=/app \
+    PORT=8000
 
 # Copy installed packages from builder
 COPY --from=builder /install /usr/local
 
-# Create a non-root user (security best practice)
+# Create a non-root user (security best practice; required on HF Spaces
+# Docker SDK, which refuses images that run as root).
 RUN addgroup --system appgroup && adduser --system --ingroup appgroup appuser
 
 WORKDIR /app
@@ -41,7 +43,9 @@ RUN chown -R appuser:appgroup /app
 
 USER appuser
 
+# $PORT is honoured by both docker-compose (defaults to 8000 above) and
+# Hugging Face Spaces (sets PORT=7860 at runtime). The `sh -c` wrapper
+# is required because `["uvicorn", ..., "$PORT"]` would treat the var
+# as a literal string.
 EXPOSE 8000
-
-# --reload is intentionally kept for the sprint demo; remove for production.
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+CMD ["sh", "-c", "exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT}"]

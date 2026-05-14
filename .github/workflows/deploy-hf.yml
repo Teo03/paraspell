@@ -1,0 +1,118 @@
+name: Deploy backend to Hugging Face Space
+
+# Trigger on:
+# - merge to main that touches backend code or the deploy plumbing itself
+# - manual button in the Actions tab (useful when re-deploying after editing
+#   Space-side secrets, or for re-bootstrapping a freshly recreated Space)
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/backend/**'
+      - '.github/hf-space-README.md'
+      - '.github/workflows/deploy-hf.yml'
+  workflow_dispatch:
+
+# One in-flight deploy per branch. Newer pushes cancel older queued runs so
+# we don't end up with two `git push --force`s racing each other.
+concurrency:
+  group: deploy-hf-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Push apps/backend → HF Space
+    runs-on: ubuntu-latest
+
+    # Tunables — change these if you rename the Space or move it under a
+    # different owner. HF_USER must match the account that owns the token
+    # in secrets.HF_TOKEN; HF_SPACE is the slug after /spaces/<user>/.
+    env:
+      HF_USER: teo03
+      HF_SPACE: paraspell-backend
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        # Full history isn't needed — the Space repo is always force-pushed
+        # from a fresh commit, so a shallow checkout is fine here.
+
+      - name: Set up Python (for huggingface_hub)
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install huggingface_hub
+        run: pip install --upgrade "huggingface_hub>=0.25"
+
+      - name: Ensure the Space exists (idempotent)
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          python - <<'PY'
+          import os
+          from huggingface_hub import create_repo
+          # space_sdk=docker so HF builds our Dockerfile; exist_ok lets the
+          # action run repeatedly without erroring on the second deploy.
+          create_repo(
+              repo_id=f"{os.environ['HF_USER']}/{os.environ['HF_SPACE']}",
+              repo_type="space",
+              space_sdk="docker",
+              token=os.environ["HF_TOKEN"],
+              exist_ok=True,
+              private=False,
+          )
+          PY
+
+      - name: Stage Space contents
+        # The Space repo's root must contain the Dockerfile and the README
+        # with HF YAML frontmatter. We assemble exactly that layout in a
+        # throwaway directory — `apps/backend/` contents at the root, plus
+        # the templated README — so the HF Space repo stays minimal (no
+        # frontend code, no monorepo plumbing).
+        run: |
+          set -euo pipefail
+          mkdir -p hf-space
+          # Copy backend tree wholesale. Includes Dockerfile, requirements.txt,
+          # app/ (with the committed words.marisa + soundex.sqlite artifacts),
+          # and scripts/ (kept for transparency — not executed at runtime).
+          cp -a apps/backend/. hf-space/
+          # The templated README carries the HF YAML frontmatter that tells
+          # Spaces "sdk=docker, app_port=8000" — must replace whatever was
+          # in apps/backend/ (there is no backend-level README today, but
+          # be explicit either way).
+          cp .github/hf-space-README.md hf-space/README.md
+          # Drop test fixtures / pytest cache that crept into apps/backend.
+          # Keep ./tests/ — they make the Space self-debuggable from the
+          # web UI's "Run command" feature.
+          rm -rf hf-space/pytest-cache-files-*
+          ls -la hf-space | head -30
+
+      - name: Push to HF Space git remote
+        # Force-push because the Space repo is a deploy artifact, not a
+        # collaboration target. Every deploy = one new root commit; we
+        # don't preserve Space-side history.
+        working-directory: hf-space
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          set -euo pipefail
+          git init -q -b main
+          git config user.name  "GitHub Actions"
+          git config user.email "noreply@github.com"
+          git lfs install --skip-smudge >/dev/null 2>&1 || true
+          # Track binary artifacts via LFS so HF accepts them. The 7.7 MB
+          # soundex.sqlite is just over GitHub's "warn at 10 MB" threshold
+          # locally, but HF's git remote rejects non-LFS files above 10 MB
+          # — using LFS pre-emptively keeps headroom.
+          git lfs track "*.sqlite" "*.marisa" >/dev/null
+          git add .gitattributes
+          git add -A
+          git commit -q -m "Deploy from github.com/${{ github.repository }}@${{ github.sha }}"
+          # The Space's git URL uses the HF user + token for HTTPS auth.
+          # `set +x` so the token doesn't leak in logs (it's a masked
+          # secret already, but defence-in-depth).
+          set +x
+          git push --force \
+            "https://${HF_USER}:${HF_TOKEN}@huggingface.co/spaces/${HF_USER}/${HF_SPACE}" \
+            main

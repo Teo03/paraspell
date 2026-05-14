@@ -207,6 +207,29 @@ docker compose exec backend pytest /app/tests --ignore=/app/app
 
 (Note: this requires the test folder and data files to be copied into the image. If they aren't yet — the production `Dockerfile` only copies `app/` — run pytest from the host instead.)
 
+## Deployment
+
+Production runs on two free-tier hosts:
+
+| Component | Host | Live URL |
+|---|---|---|
+| Frontend (Vite SPA) | Vercel | https://paraspell.vercel.app |
+| Backend (FastAPI + worker pool) | Hugging Face Spaces (Docker SDK) | https://teo03-paraspell-backend.hf.space |
+
+Vercel reads `vercel.json` for the build command + output dir; the HF Space reads `apps/backend/Dockerfile`. Cross-wiring lives in two env vars: `VITE_API_BASE_URL` in the Vercel project (points at the HF Space) and `CORS_ORIGINS` in the HF Space Variables (points at the Vercel URL).
+
+To redeploy after merging a change:
+
+```bash
+vercel --prod                                  # frontend (re-reads .vercel link)
+# backend — push staged backend tree to the HF Space's git remote
+.github/workflows/deploy-hf.yml                # or trigger the GH Action manually
+```
+
+The GH Action at `.github/workflows/deploy-hf.yml` auto-deploys the backend on every push to `main` that touches `apps/backend/`; it needs an `HF_TOKEN` repo secret with write scope.
+
+> Free-tier note: HF CPU Basic has only 2 vCPUs, so the live demo shows ~1.5–1.8× speedup. The paper's 7× requires ≥8 cores — upgrade the Space hardware or run the benchmark locally on a multi-core machine to reproduce.
+
 ## Team notes
 
 - A few entries in the typo list (e.g., "untill", "embarras") appear in dwyl's wordlist as archaic spellings, so they do not trigger correction. That behavior comes from the source list, not the engine. If the team wants stricter filtering, point the build script at SCOWL and cap the size to match.

@@ -36,3 +36,7 @@ Thumbs.db
 
 # Backend dictionary build cache (raw word list re-downloaded by build_dict.py)
 apps/backend/scripts/words_alpha.txt
+# Frequency data cached by build_freq.py (~5 MB Norvig count_1w.txt)
+apps/backend/scripts/count_1w.txt
+# Vercel CLI link config — per-user, not for the repo
+.vercel

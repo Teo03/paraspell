@@ -4,6 +4,14 @@ import { StatsRow } from "@/components/StatsRow";
 import { InputPane } from "@/components/InputPane";
 import { ResultsPane } from "@/components/ResultsPane";
 
+// Vite inlines `import.meta.env.VITE_*` at build time. Set
+// VITE_API_BASE_URL in your hosting provider (Vercel project settings,
+// or apps/frontend/.env.production) so production builds hit the right
+// backend. Falls back to the docker-compose default for local dev.
+const API_BASE_URL =
+  (import.meta.env.VITE_API_BASE_URL as string | undefined) ||
+  "http://localhost:8000";
+
 interface Stats {
   words: number | null;
   errors: number | null;
@@ -49,12 +57,12 @@ function App() {
       if (file) {
         const formData = new FormData();
         formData.append("file", file);
-        res = await fetch("http://localhost:8000/check/file", {
+        res = await fetch(`${API_BASE_URL}/check/file`, {
           method: "POST",
           body: formData,
         });
       } else {
-        res = await fetch("http://localhost:8000/check/text", {
+        res = await fetch(`${API_BASE_URL}/check/text`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ text }),

@@ -15,6 +15,10 @@ services:
       - "8000:8000"
     volumes:
       - ./apps/backend:/app
+    # Override the production CMD with --reload for local dev hot-reload.
+    # The image's default CMD (no --reload, $PORT-aware) is what HF Spaces
+    # runs in production.
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health').status==200 else 1)"]
       interval: 10s
