@@ -37,7 +37,7 @@ import os
 
 from rapidfuzz.distance import Levenshtein
 
-from app.engine.dictionary import Dictionary
+from app.engine.dictionary import Dictionary, _score_with_freq
 from app.schemas.spell import Correction, Suggestion
 
 
@@ -136,23 +136,24 @@ def _rank_suggestions(word: str, dictionary: Dictionary) -> list[Suggestion]:
         thousands of candidates.
 
     Score
-        ``1 - dist / max(len(query), len(candidate))`` — produces a value
-        in [0, 1] that satisfies the ``Suggestion.score`` constraint and
-        ranks intuitively (shorter edit distance and longer matched
-        prefix → higher score). Equivalent to
-        ``rapidfuzz.distance.Levenshtein.normalized_similarity`` but
-        computed once from the integer distance we already have, so it's
-        slightly cheaper than calling both APIs.
+        ``base = 1 - dist / max(len(query), len(candidate))`` produces a
+        value in [0, 1] from edit distance alone — the v1 formula.
+        ``_score_with_freq`` then geometrically pulls that toward 1 by an
+        amount proportional to ``log10(freq+1)``, so common candidates
+        beat rare ones at the same edit distance (and can even overcome
+        a small distance gap, e.g. ``thier→their`` at dist=2 beating
+        ``thier→theer`` at dist=1). Words missing from Norvig's data
+        have freq=0 → no boost → behaviour reduces to the v1 formula.
     """
     query = word.lower()
-    candidates = dictionary.soundex_candidates(query)
+    candidates = dictionary._soundex_candidates_with_freq(query)
     if not candidates:
         return []
 
     qlen = len(query)
-    scored: list[tuple[float, int, str]] = []  # (score, distance, word)
+    scored: list[tuple[float, int, int, str]] = []  # (score, dist, -freq, word)
 
-    for candidate in candidates:
+    for candidate, freq in candidates:
         # Cheap length pre-filter — no allocation, no C call.
         if abs(len(candidate) - qlen) > MAX_DISTANCE:
             continue
@@ -164,14 +165,17 @@ def _rank_suggestions(word: str, dictionary: Dictionary) -> list[Suggestion]:
         if dist > MAX_DISTANCE:
             continue
 
-        score = 1.0 - dist / max(qlen, len(candidate))
-        scored.append((score, dist, candidate))
+        score = _score_with_freq(dist, qlen, len(candidate), freq)
+        # Negate freq so the secondary sort prefers commoner words on
+        # near-ties — most of the freq influence is already in `score`,
+        # but identical scores still need a deterministic order.
+        scored.append((score, dist, -freq, candidate))
 
     # Sort: highest score first; tie-break on shorter distance, then on
-    # alphabetical word (already sorted in the bucket, so this is stable).
-    scored.sort(key=lambda t: (-t[0], t[1], t[2]))
+    # higher frequency (smaller -freq), then alphabetical for determinism.
+    scored.sort(key=lambda t: (-t[0], t[1], t[2], t[3]))
 
     return [
         Suggestion(word=cand, score=score)
-        for score, _dist, cand in scored[:MAX_SUGGESTIONS]
+        for score, _dist, _nfreq, cand in scored[:MAX_SUGGESTIONS]
     ]

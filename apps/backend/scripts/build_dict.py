@@ -58,9 +58,11 @@ WORDLIST_URL = (
 BACKEND_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_RAW_PATH = BACKEND_ROOT / "scripts" / "words_alpha.txt"
 DEFAULT_OUT_PATH = BACKEND_ROOT / "app" / "data" / "words.marisa"
+DEFAULT_BLOCKLIST_PATH = BACKEND_ROOT / "scripts" / "dict_blocklist.txt"
 
 # Sanity bounds for the normalised word list — protects against silently
-# committing a truncated or corrupted dictionary.
+# committing a truncated or corrupted dictionary. Blocklist removes ~10
+# entries so the lower bound has a few entries of slack vs. the raw 370 k.
 MIN_EXPECTED_WORDS = 350_000
 MAX_EXPECTED_WORDS = 400_000
 
@@ -87,7 +89,29 @@ def fetch_raw(raw_path: Path, url: str, force: bool) -> Path:
     return raw_path
 
 
-def normalise(raw_path: Path) -> list[str]:
+def load_blocklist(blocklist_path: Path) -> frozenset[str]:
+    """Read *blocklist_path* — one lowercase word per line, ``#`` comments.
+
+    Returns an empty set if the file doesn't exist (blocklist is optional).
+    Used by ``normalise`` to drop common typo/archaic spellings that the
+    source word list includes as "valid". See the file's header comment
+    for the selection rule.
+    """
+    if not blocklist_path.is_file():
+        logger.info("no blocklist at %s — skipping filter", blocklist_path)
+        return frozenset()
+
+    entries: set[str] = set()
+    with blocklist_path.open("r", encoding="utf-8") as fh:
+        for line in fh:
+            word = line.split("#", 1)[0].strip().lower()
+            if word:
+                entries.add(word)
+    logger.info("loaded %d blocklist entries from %s", len(entries), blocklist_path)
+    return frozenset(entries)
+
+
+def normalise(raw_path: Path, blocklist: frozenset[str] = frozenset()) -> list[str]:
     """Read *raw_path* and return a sorted, deduped, ASCII-lowercase list.
 
     The pipeline:
@@ -96,13 +120,20 @@ def normalise(raw_path: Path) -> list[str]:
       3. lowercase (the source is already lowercase but we don't trust it)
       4. keep only words that are pure a-z — drops digits, hyphens, accents
       5. dedupe via ``set``
-      6. sort for deterministic trie output (MARISA stores in lex order
+      6. drop any word in *blocklist* (typo/archaic entries the source
+         marks as valid — see scripts/dict_blocklist.txt)
+      7. sort for deterministic trie output (MARISA stores in lex order
          internally, but sorting the input makes the build reproducible
          and the file byte-stable across machines).
     """
     with raw_path.open("r", encoding="utf-8") as fh:
         candidates = (line.strip().lower() for line in fh)
         words = {w for w in candidates if w and w.isascii() and w.isalpha()}
+
+    if blocklist:
+        before = len(words)
+        words -= blocklist
+        logger.info("blocklist removed %d entries", before - len(words))
 
     if not (MIN_EXPECTED_WORDS <= len(words) <= MAX_EXPECTED_WORDS):
         raise RuntimeError(
@@ -151,6 +182,12 @@ def main(argv: list[str] | None = None) -> int:
         help="Re-download even if the raw list is already cached.",
     )
     parser.add_argument(
+        "--blocklist",
+        type=Path,
+        default=DEFAULT_BLOCKLIST_PATH,
+        help="Path to blocklist file (one word per line). Missing file → no filter.",
+    )
+    parser.add_argument(
         "-v",
         "--verbose",
         action="store_true",
@@ -164,7 +201,8 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     raw_path = fetch_raw(args.raw, args.url, args.force_download)
-    words = normalise(raw_path)
+    blocklist = load_blocklist(args.blocklist)
+    words = normalise(raw_path, blocklist=blocklist)
     logger.info("normalised %d unique words", len(words))
 
     trie = build_trie(words, args.out)
@@ -183,6 +221,10 @@ def main(argv: list[str] | None = None) -> int:
     for sample in ("asdfghjkl", "qzxqzx"):
         if sample in trie:
             raise RuntimeError(f"sanity probe failed: {sample!r} unexpectedly in trie")
+    # Blocklist enforcement — every blocklist entry must be gone from the trie.
+    for sample in blocklist:
+        if sample in trie:
+            raise RuntimeError(f"blocklist failed: {sample!r} still in trie")
 
     return 0
 

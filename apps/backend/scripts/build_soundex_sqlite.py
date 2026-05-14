@@ -58,6 +58,7 @@ _BACKEND_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_BACKEND_ROOT))
 
 from app.engine.dictionary import soundex  # noqa: E402  (after sys.path tweak)
+from build_freq import load_frequencies  # noqa: E402  (sibling script)
 
 
 DEFAULT_TRIE_PATH = _BACKEND_ROOT / "app" / "data" / "words.marisa"
@@ -68,10 +69,17 @@ DEFAULT_DB_PATH = _BACKEND_ROOT / "app" / "data" / "soundex.sqlite"
 MIN_EXPECTED_ROWS = 350_000
 MAX_EXPECTED_ROWS = 400_000
 
+# Schema v2 adds the ``frequency`` column. The runtime reads it via
+# ``Dictionary.soundex_candidates`` and blends it into the ranking score
+# (see ``worker._rank_suggestions``). Words not present in the frequency
+# source default to 0 — the score-blend formula degrades cleanly: a
+# zero-frequency candidate contributes no boost, falling back to pure
+# Levenshtein ranking.
 DDL = """
 CREATE TABLE soundex_words (
-    code TEXT NOT NULL,
-    word TEXT NOT NULL,
+    code      TEXT    NOT NULL,
+    word      TEXT    NOT NULL,
+    frequency INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (code, word)
 ) WITHOUT ROWID;
 
@@ -101,27 +109,45 @@ def load_trie(path: Path) -> marisa_trie.Trie:
     return trie
 
 
-def build_rows(trie: marisa_trie.Trie) -> list[tuple[str, str]]:
-    """Compute (code, word) pairs for every key in *trie*.
+def build_rows(
+    trie: marisa_trie.Trie,
+    freqs: dict[str, int],
+) -> list[tuple[str, str, int]]:
+    """Compute ``(code, word, frequency)`` triples for every key in *trie*.
 
     Skips words whose Soundex code is empty (e.g. all-vowel inputs that
     jellyfish refuses) — these are unreachable from the worker's lookup
     anyway, so storing them would waste rows and slow lookups.
+
+    Frequency defaults to 0 when the word is not in *freqs*. That's a
+    common case: dwyl has many rare words Norvig's web corpus never sees.
+    The score-blend formula treats freq=0 as "no boost", so the row is
+    still findable; it just won't beat a more-common neighbour on ties.
     """
-    rows: list[tuple[str, str]] = []
+    rows: list[tuple[str, str, int]] = []
     skipped = 0
+    matched = 0
     for w in trie.keys():
         code = soundex(w)
-        if code:
-            rows.append((code, w))
-        else:
+        if not code:
             skipped += 1
+            continue
+        freq = freqs.get(w, 0)
+        if freq:
+            matched += 1
+        rows.append((code, w, freq))
     if skipped:
         logger.info("skipped %d words with empty soundex codes", skipped)
+    logger.info(
+        "frequency coverage: %d / %d words matched (%.1f%%)",
+        matched,
+        len(rows),
+        100.0 * matched / max(len(rows), 1),
+    )
     return rows
 
 
-def populate(db_path: Path, rows: list[tuple[str, str]]) -> None:
+def populate(db_path: Path, rows: list[tuple[str, str, int]]) -> None:
     """Create the SQLite file fresh and bulk-insert *rows*."""
     if db_path.exists():
         db_path.unlink()
@@ -141,15 +167,15 @@ def populate(db_path: Path, rows: list[tuple[str, str]]) -> None:
 
         with conn:  # implicit transaction
             conn.executemany(
-                "INSERT INTO soundex_words(code, word) VALUES (?, ?)",
+                "INSERT INTO soundex_words(code, word, frequency) VALUES (?, ?, ?)",
                 rows,
             )
 
             # Distinct count is cheap on the data we just inserted; storing
             # it in `meta` avoids a SELECT COUNT(DISTINCT code) at runtime.
-            distinct_codes = len({code for code, _ in rows})
+            distinct_codes = len({code for code, _, _ in rows})
             meta = [
-                ("schema_version", "1"),
+                ("schema_version", "2"),
                 ("source_trie", DEFAULT_TRIE_PATH.name),
                 ("word_count", str(len(rows))),
                 ("code_count", str(distinct_codes)),
@@ -240,7 +266,9 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     trie = load_trie(args.trie)
-    rows = build_rows(trie)
+    freqs = load_frequencies()
+    logger.info("loaded %d frequency entries", len(freqs))
+    rows = build_rows(trie, freqs)
 
     if not (MIN_EXPECTED_ROWS <= len(rows) <= MAX_EXPECTED_ROWS):
         raise RuntimeError(

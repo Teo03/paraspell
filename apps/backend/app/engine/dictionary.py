@@ -50,6 +50,7 @@ Design pattern note
 from __future__ import annotations
 
 import logging
+import math
 import os
 import sqlite3
 from functools import lru_cache
@@ -81,6 +82,45 @@ _DEFAULT_CACHE_SIZE = int(os.getenv("SOUNDEX_CACHE_SIZE", "1024"))
 # ranking. Mirrors the same env var read by worker.py so both layers are
 # configured identically from .env.
 _MAX_EDIT_DISTANCE: int = int(os.getenv("MAX_EDIT_DISTANCE", "3"))
+
+# Frequency-blend normalisation constant. Norvig's count_1w.txt tops out
+# around 2.3e10 ("the"); log10 of that is ~10.36. Dividing by 9 puts
+# everyday common words near a ``freq_factor`` of 1.0 (i.e. "very common
+# = full boost"), which is what we want — see the test case for
+# ``thier → their`` in TestFreqBlendRanking. Words exceeding the norm
+# are clamped at 1 to keep the final score in [0, 1].
+_FREQ_NORM = 9.0
+
+
+def _score_with_freq(dist: int, qlen: int, clen: int, freq: int) -> float:
+    """Blend Levenshtein similarity with log-frequency.
+
+    Formula::
+
+        base = 1 - dist / max(qlen, clen)                    # in [0, 1]
+        freq_factor = min(log10(freq + 1) / _FREQ_NORM, 1)   # in [0, 1]
+        score = base + (1 - base) * freq_factor              # in [base, 1]
+
+    The geometric pull keeps the score bounded by 1 (so the API's
+    ``Suggestion.score`` ge=0/le=1 invariant holds) and reduces to ``base``
+    when the candidate is absent from the frequency table.
+
+    Why this shape, vs. a simple additive bonus
+    -------------------------------------------
+    * "their" is at edit distance 2 from "thier" while "theer"/"tier" are
+      at distance 1. A small additive freq bonus can't overcome that gap
+      (zipf(their)≈8 only adds ~0.04). The multiplicative pull-to-1 lets
+      a very common word win even when its base score is lower.
+    * Bounded by 1 — same range as the existing formula, so the API
+      schema stays valid.
+    * Reduces cleanly: freq=0 → factor=0 → score = base, identical to
+      the v1 behaviour for words missing from Norvig's data.
+    """
+    base = 1.0 - dist / max(qlen, clen)
+    if freq <= 0:
+        return base
+    freq_factor = min(math.log10(freq + 1) / _FREQ_NORM, 1.0)
+    return base + (1.0 - base) * freq_factor
 
 
 def soundex(word: str) -> str:
@@ -190,6 +230,23 @@ class Dictionary:
         `reseive` all collapse to ``R210`` and share a single cache entry.
         Returns a fresh list (not the cached tuple) so callers can mutate
         / sort without poisoning the cache.
+
+        Frequency-blind public API. Engine callers that need to rank by
+        frequency should use ``_soundex_candidates_with_freq`` instead so
+        the SQL bucket is read once.
+        """
+        code = soundex(word)
+        if not code:
+            return []
+        return [w for w, _freq in self._fetch_bucket(code)]
+
+    def _soundex_candidates_with_freq(self, word: str) -> list[tuple[str, int]]:
+        """Like :py:meth:`soundex_candidates` but each entry is ``(word, freq)``.
+
+        Internal — the ranking pipeline needs both columns from a single
+        SQL fetch (re-querying for frequency in the hot path would defeat
+        the LRU). Public callers should keep using the stable string list
+        from :py:meth:`soundex_candidates`.
         """
         code = soundex(word)
         if not code:
@@ -242,14 +299,14 @@ class Dictionary:
             return []
 
         query = word.lower()
-        pool = self.soundex_candidates(query)
+        pool = self._soundex_candidates_with_freq(query)
         if not pool:
             return []
 
         qlen = len(query)
-        scored: list[tuple[float, int, str]] = []  # (score, dist, word)
+        scored: list[tuple[float, int, int, str]] = []  # (score, dist, -freq, word)
 
-        for candidate in pool:
+        for candidate, freq in pool:
             # Cheap length pre-filter — no allocation, no C call.
             if abs(len(candidate) - qlen) > _MAX_EDIT_DISTANCE:
                 continue
@@ -262,13 +319,16 @@ class Dictionary:
             if dist > _MAX_EDIT_DISTANCE:
                 continue
 
-            score = 1.0 - dist / max(qlen, len(candidate))
-            scored.append((score, dist, candidate))
+            score = _score_with_freq(dist, qlen, len(candidate), freq)
+            # Stash -freq so the secondary sort prefers commoner words on
+            # near-ties — most of the freq influence is already in `score`,
+            # but identical scores still need a deterministic order.
+            scored.append((score, dist, -freq, candidate))
 
-        # Highest score first; tie-break on shorter distance then
-        # alphabetical order (bucket is pre-sorted by SQL, so stable).
-        scored.sort(key=lambda t: (-t[0], t[1], t[2]))
-        return [cand for _, _, cand in scored[:top_n]]
+        # Highest score first; on near-ties prefer commoner words; finally
+        # break ties on alphabetical order for determinism.
+        scored.sort(key=lambda t: (-t[0], t[1], t[2], t[3]))
+        return [cand for _, _, _, cand in scored[:top_n]]
 
     def __len__(self) -> int:
         return len(self._words)
@@ -426,18 +486,24 @@ class Dictionary:
             self._conn_pid = pid
         return self._conn
 
-    def _fetch_bucket_uncached(self, code: str) -> tuple[str, ...]:
+    def _fetch_bucket_uncached(self, code: str) -> tuple[tuple[str, int], ...]:
         """Run the SQL ``WHERE code = ?`` lookup. Cached by ``_fetch_bucket``.
 
-        Returns a tuple (immutable) — the LRU stores it directly and
-        ``soundex_candidates`` makes a fresh ``list`` for the caller.
+        Returns a tuple of ``(word, frequency)`` pairs (immutable). The LRU
+        stores it directly; ``soundex_candidates`` makes a fresh list of
+        bare strings for the public path, while
+        ``_soundex_candidates_with_freq`` returns the tuples as-is so the
+        ranking pipeline can blend frequency into the score without a
+        second SQL round-trip.
+
         Sorted in SQL so output ordering is deterministic across machines
         (matches the alphabetic order the in-memory version produced, so
         existing test fixtures keep working).
         """
         conn = self._get_conn()
         rows = conn.execute(
-            "SELECT word FROM soundex_words WHERE code = ? ORDER BY word",
+            "SELECT word, frequency FROM soundex_words "
+            "WHERE code = ? ORDER BY word",
             (code,),
         ).fetchall()
-        return tuple(w for (w,) in rows)
+        return tuple((w, f) for (w, f) in rows)

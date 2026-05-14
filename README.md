@@ -209,7 +209,8 @@ docker compose exec backend pytest /app/tests --ignore=/app/app
 
 ## Team notes
 
-- A few entries in the typo list (e.g., "untill", "embarras") appear in dwyl's wordlist as archaic spellings, so they do not trigger correction. That behavior comes from the source list, not the engine. If the team wants stricter filtering, point the build script at SCOWL and cap the size to match.
+- dwyl's wordlist contains some archaic / typo spellings as "valid" (e.g. `untill`, `embarras`, `accomodate`, `wierd`, `calender`, `cemetary`, `noticable`, `priviledge`). `scripts/dict_blocklist.txt` lists the offenders and `build_dict.py` drops them before serialising the trie. Add more entries to the blocklist (one word per line, `#` for comments) and rerun the two build scripts to extend coverage.
+- Suggestion ranking uses a frequency-blended score: pure Levenshtein gives the base, then `log10(count+1) / 9` (clamped to 1) pulls common candidates toward the top. Frequencies come from Norvig's `count_1w.txt` (~333k web 1-gram counts), cached by `scripts/build_freq.py` and baked into `soundex.sqlite`. Words missing from Norvig's data get freq=0 → no boost → behaviour reduces to pure Levenshtein.
 - Linux copy-on-write only shares pages with `mp.get_context("fork")`. Edi's Part 3 should use `fork` (the Linux default); `spawn` would re-execute imports and rebuild the Soundex index per worker. Flag this in the Part 3 PR.
 
 ## Project ownership
