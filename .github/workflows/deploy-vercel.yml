@@ -40,6 +40,15 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
 
+      - name: Set up pnpm
+        # Must come before setup-node so node-version step can also wire
+        # its pnpm cache. Vercel's "install" step in vercel.json runs
+        # `pnpm install`, so the binary needs to exist on the runner —
+        # the Vercel CLI itself doesn't bundle a package manager.
+        uses: pnpm/action-setup@v4
+        with:
+          version: "8.15.3"
+
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
