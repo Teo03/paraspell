@@ -309,18 +309,37 @@ class TestGetCandidates:
         assert all(isinstance(w, str) for w in result)
 
     def test_results_are_ranked_best_first(self, dictionary: Dictionary) -> None:
-        """Verify ordering is descending by Levenshtein similarity.
+        """Verify ordering is descending by the frequency-blended score.
 
-        We can't compare raw scores (get_candidates returns strings), so we
-        re-derive the distance from each candidate and assert non-decreasing
-        edit distance — a proxy for non-increasing score.
+        Pre-v2 this test asserted monotonic Levenshtein distance — but
+        the v2 ranking can legitimately put a slightly-more-distant
+        very-common word above a closer rare word (that's the whole
+        reason for the freq blend; see ``thier → their`` parametrisation
+        below). The honest invariant is the score itself, not the
+        underlying edit distance.
         """
         from rapidfuzz.distance import Levenshtein
+
+        from app.engine.dictionary import _score_with_freq
+
         query = "recieve"
+        qlen = len(query)
         result = dictionary.get_candidates(query, top_n=5)
-        distances = [Levenshtein.distance(query, c) for c in result]
-        assert distances == sorted(distances), (
-            f"candidates should be ranked closest-first, got distances {distances}"
+
+        # Look up the same frequency table the ranker used.
+        freq_for = dict(dictionary._soundex_candidates_with_freq(query))
+
+        scores = [
+            _score_with_freq(
+                Levenshtein.distance(query, cand),
+                qlen,
+                len(cand),
+                freq_for.get(cand, 0),
+            )
+            for cand in result
+        ]
+        assert scores == sorted(scores, reverse=True), (
+            f"candidates should be ranked highest-score-first, got {scores}"
         )
 
     def test_garbage_input_returns_list(self, dictionary: Dictionary) -> None:
@@ -344,4 +363,82 @@ class TestGetCandidates:
         result = dictionary.get_candidates(typo, top_n=5)
         assert expected in result, (
             f"expected {expected!r} in get_candidates({typo!r}, 5), got {result}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Frequency-blended ranking (v2) — top-1 must be the common-English answer
+# ---------------------------------------------------------------------------
+
+class TestFreqBlendRanking:
+    """The v2 score-blend is supposed to deliver the *right* top suggestion,
+    not just include it somewhere in the top-5. Each row here is a case
+    that v1 (alphabetical tiebreak on equal Levenshtein) got wrong —
+    they're the regression frontier for the frequency change.
+    """
+
+    @pytest.mark.parametrize(
+        ("typo", "expected_top"),
+        [
+            ("recieve", "receive"),   # v1 returned "reachieve" (longer ⇒ higher norm-score)
+            ("wrds",    "words"),     # v1 returned "wards"     (alphabetical)
+            ("smal",    "small"),     # v1 returned "samal"     (alphabetical)
+            ("exmple",  "example"),
+            ("thier",   "their"),     # dist 2 — frequency must overcome the gap
+        ],
+    )
+    def test_top_suggestion_is_common_english(
+        self, dictionary: Dictionary, typo: str, expected_top: str
+    ) -> None:
+        result = dictionary.get_candidates(typo, top_n=5)
+        assert result, f"empty candidate list for {typo!r}"
+        assert result[0] == expected_top, (
+            f"top suggestion for {typo!r} was {result[0]!r}, expected {expected_top!r} "
+            f"(full top-5: {result})"
+        )
+
+    def test_zero_freq_candidate_falls_back_to_base_score(
+        self, dictionary: Dictionary
+    ) -> None:
+        """Words missing from Norvig's data have freq=0 → no boost. The
+        score for those must equal the v1 formula `1 - dist/max(qlen,clen)`,
+        i.e. the freq blend is invisible when frequency is unknown.
+        """
+        from app.engine.dictionary import _score_with_freq
+
+        # freq=0 → score must equal pure Levenshtein similarity
+        assert _score_with_freq(dist=1, qlen=5, clen=5, freq=0) == pytest.approx(0.8)
+        assert _score_with_freq(dist=2, qlen=7, clen=9, freq=0) == pytest.approx(1 - 2/9)
+
+    def test_score_blend_bounded_in_unit_interval(self) -> None:
+        """Final score must stay in [0, 1] so SpellCheckResponse validates."""
+        from app.engine.dictionary import _score_with_freq
+
+        # Maximum-frequency word ("the", count 2.3e10) at minimum distance
+        s = _score_with_freq(dist=0, qlen=3, clen=3, freq=23_135_851_162)
+        assert 0.0 <= s <= 1.0
+
+
+# ---------------------------------------------------------------------------
+# Blocklist — words.marisa must not contain known-bad dwyl entries
+# ---------------------------------------------------------------------------
+
+class TestBlocklist:
+    """``scripts/build_dict.py`` drops a curated list of typo/archaic
+    spellings before serialising the trie. The build script verifies the
+    drop, but a runtime check catches a stale committed artifact too —
+    e.g. if someone rebuilds the trie without the blocklist and pushes it.
+    """
+
+    @pytest.mark.parametrize(
+        "typo",
+        ["untill", "embarras", "accomodate", "wierd",
+         "calender", "cemetary", "noticable", "priviledge"],
+    )
+    def test_blocklisted_typos_not_in_trie(
+        self, dictionary: Dictionary, typo: str
+    ) -> None:
+        assert not dictionary.contains(typo), (
+            f"{typo!r} should be blocklisted from words.marisa "
+            "but the runtime trie still treats it as a valid word"
         )

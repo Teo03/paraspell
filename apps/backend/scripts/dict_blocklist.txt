@@ -1,0 +1,23 @@
+# Words present in dwyl/english-words that are not correct modern English
+# spellings — they would otherwise cause /check/text to silently accept
+# common typos. ``build_dict.py`` removes these before serialising
+# words.marisa.
+#
+# Selection rule: each entry must
+#   1. appear in dwyl/english-words/words_alpha.txt as "valid", AND
+#   2. have a near-neighbour at edit distance 1–2 that is orders of
+#      magnitude more frequent in normal English (confirmed by checking
+#      ``scripts/count_1w.txt``).
+# Borderline cases (informal but accepted by some dictionaries — "alright",
+# "thru") are intentionally NOT in this list. Keep it conservative.
+#
+# Format: one lowercase word per line. Lines starting with `#` and blank
+# lines are ignored.
+accomodate
+calender
+cemetary
+embarras
+noticable
+priviledge
+untill
+wierd
