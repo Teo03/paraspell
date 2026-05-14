@@ -87,4 +87,7 @@ async def check_file(
 
     # --- 4. Extract plain text and spell-check --------------------------------
     text = extract_text(content, filename)
-    return await checker.check(text)
+    result = await checker.check(text)
+    # Echo the extracted text so the frontend can apply corrections at the
+    # returned offsets (offsets index into this string, not the raw upload).
+    return result.model_copy(update={"extracted_text": text})

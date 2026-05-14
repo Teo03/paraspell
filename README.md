@@ -6,13 +6,14 @@ Implementation grounded in **Petrushevski & Zdraveski, "Accelerating Spell Check
 
 ## Team 1
 
-| Member | Student ID |
-|---|---|
-| Edon Fetaji | 221517 |
-| Edi Rizvani | 221587 |
-| Dea Jadrovska | 221526 |
-| Teodor Bogoeski | 221511 |
-| Blerona Muladauti | 221541 |
+| Member            | Student ID |
+| ----------------- | ---------- |
+| Edon Fetaji       | 221517     |
+| Edi Rizvani       | 221587     |
+| Dea Jadrovska     | 221526     |
+| Teodor Bogoeski   | 221511     |
+| Blerona Muladauti | 221541     |
+| Ivana Kamchevska  | 259081     |
 
 ## Architecture
 
@@ -37,21 +38,21 @@ Pick **one** of the two paths below.
 
 ### Path A — Docker (recommended)
 
-| Tool | Minimum | Notes |
-|---|---|---|
-| Docker Engine | 24+ | Docker Desktop on macOS / Windows works fine |
-| Docker Compose | v2 | bundled with modern Docker Desktop |
+| Tool           | Minimum | Notes                                        |
+| -------------- | ------- | -------------------------------------------- |
+| Docker Engine  | 24+     | Docker Desktop on macOS / Windows works fine |
+| Docker Compose | v2      | bundled with modern Docker Desktop           |
 
 Nothing else needs to be installed locally.
 
 ### Path B — Run services natively
 
-| Tool | Minimum | Notes |
-|---|---|---|
-| Python | 3.10+ | 3.12 used in the backend Dockerfile |
-| Node.js | 20.x LTS | matches the frontend Dockerfile base image |
-| pnpm | 8.15+ | install via `corepack enable` |
-| Git | any recent | required by `pnpm install` for some deps |
+| Tool    | Minimum    | Notes                                      |
+| ------- | ---------- | ------------------------------------------ |
+| Python  | 3.10+      | 3.12 used in the backend Dockerfile        |
+| Node.js | 20.x LTS   | matches the frontend Dockerfile base image |
+| pnpm    | 8.15+      | install via `corepack enable`              |
+| Git     | any recent | required by `pnpm install` for some deps   |
 
 ### Hardware (deployment, per SRS §6.3)
 
@@ -68,11 +69,11 @@ cp .env.example .env
 docker compose up --build
 ```
 
-| Service | URL | Notes |
-|---|---|---|
-| Frontend | http://localhost:5173 | Vite dev server with HMR |
-| Backend  | http://localhost:8000 | FastAPI, auto-reloading uvicorn |
-| Backend health | http://localhost:8000/health | returns `{"status":"ok"}` |
+| Service        | URL                          | Notes                           |
+| -------------- | ---------------------------- | ------------------------------- |
+| Frontend       | http://localhost:5173        | Vite dev server with HMR        |
+| Backend        | http://localhost:8000        | FastAPI, auto-reloading uvicorn |
+| Backend health | http://localhost:8000/health | returns `{"status":"ok"}`       |
 
 Tear down with `docker compose down` (add `-v` to also drop the named `node_modules` volumes).
 
@@ -112,14 +113,14 @@ The dev server is configured to bind on `0.0.0.0:5173` (so it works identically 
 
 All variables live in a single root `.env` file. See `.env.example` for paper-grounded defaults and per-variable rationale.
 
-| Variable | Default | Description | Source |
-|---|---|---|---|
-| `MAX_UPLOAD_SIZE_MB` | `20` | Hard cap on file uploads; larger requests are rejected with HTTP 400 | SRS NFR-02, NFR-08, UC-02 |
-| `MAX_SUGGESTIONS` | `5` | Number of correction candidates returned per misspelled word | SRS UC-03, §5.2.4 |
-| `WORKER_COUNT` | `auto` | Parallel worker processes; `auto` resolves to `os.cpu_count()` (peak speedup per paper Table II) | SRS FR-06, FR-07 |
-| `CHUNK_SIZE` | `auto` | Words per chunk handed to each worker; `auto` = `ceil(total_words / WORKER_COUNT)` | SRS NFR-13 |
-| `CORS_ORIGINS` | `http://localhost:5173` | Comma-separated origins permitted by FastAPI CORS middleware | SRS NFR-11 |
-| `VITE_API_BASE_URL` | `http://localhost:8000` | Base URL the React app uses for API calls | — |
+| Variable             | Default                 | Description                                                                                      | Source                    |
+| -------------------- | ----------------------- | ------------------------------------------------------------------------------------------------ | ------------------------- |
+| `MAX_UPLOAD_SIZE_MB` | `20`                    | Hard cap on file uploads; larger requests are rejected with HTTP 400                             | SRS NFR-02, NFR-08, UC-02 |
+| `MAX_SUGGESTIONS`    | `5`                     | Number of correction candidates returned per misspelled word                                     | SRS UC-03, §5.2.4         |
+| `WORKER_COUNT`       | `auto`                  | Parallel worker processes; `auto` resolves to `os.cpu_count()` (peak speedup per paper Table II) | SRS FR-06, FR-07          |
+| `CHUNK_SIZE`         | `auto`                  | Words per chunk handed to each worker; `auto` = `ceil(total_words / WORKER_COUNT)`               | SRS NFR-13                |
+| `CORS_ORIGINS`       | `http://localhost:5173` | Comma-separated origins permitted by FastAPI CORS middleware                                     | SRS NFR-11                |
+| `VITE_API_BASE_URL`  | `http://localhost:8000` | Base URL the React app uses for API calls                                                        | —                         |
 
 The same values are also stored as **GitHub repository variables** (`gh variable list --repo Teo03/paraspell`) for use in the CI pipeline.
 
@@ -127,16 +128,16 @@ The same values are also stored as **GitHub repository variables** (`gh variable
 
 The current backend is a placeholder; real endpoints will land with Part 4.
 
-| Method | Path | Description |
-|---|---|---|
-| `GET` | `/` | Service banner |
-| `GET` | `/health` | Liveness probe (used by the docker-compose healthcheck) |
+| Method | Path      | Description                                             |
+| ------ | --------- | ------------------------------------------------------- |
+| `GET`  | `/`       | Service banner                                          |
+| `GET`  | `/health` | Liveness probe (used by the docker-compose healthcheck) |
 
 Planned endpoints (Part 4 / Trello):
 
-| Method | Path | Description | Card |
-|---|---|---|---|
-| `POST` | `/check/text` | Spell-check pasted text | FR-05 |
+| Method | Path          | Description                                 | Card  |
+| ------ | ------------- | ------------------------------------------- | ----- |
+| `POST` | `/check/text` | Spell-check pasted text                     | FR-05 |
 | `POST` | `/check/file` | Spell-check an uploaded .txt / .docx / .pdf | FR-02 |
 
 ## Common scripts
@@ -215,14 +216,14 @@ docker compose exec backend pytest /app/tests --ignore=/app/app
 
 Work is split across six tracks (`SRS Part 1 → Part 6`):
 
-| Part | Scope | Owner |
-|---|---|---|
-| 1 | Project Setup & DevOps (monorepo, Docker, env, CI, README) | Teodor |
-| 2 | Dictionary & Algorithms (370k dictionary, MARISA-trie, Soundex, Levenshtein) | Edon |
-| 3 | Parallel Spell-Check Engine (chunking, ProcessPoolExecutor, fault tolerance) | Edi |
-| 4 | Backend API Layer (FastAPI, endpoints, file extraction, CORS) | Dea |
-| 5 | Frontend: Input, Layout & Stats | Blerona |
-| 6 | Frontend: Results Pane & Corrections | _unassigned_ |
+| Part | Scope                                                                        | Owner        |
+| ---- | ---------------------------------------------------------------------------- | ------------ |
+| 1    | Project Setup & DevOps (monorepo, Docker, env, CI, README)                   | Teodor       |
+| 2    | Dictionary & Algorithms (370k dictionary, MARISA-trie, Soundex, Levenshtein) | Edon         |
+| 3    | Parallel Spell-Check Engine (chunking, ProcessPoolExecutor, fault tolerance) | Edi          |
+| 4    | Backend API Layer (FastAPI, endpoints, file extraction, CORS)                | Dea          |
+| 5    | Frontend: Input, Layout & Stats                                              | Blerona      |
+| 6    | Frontend: Results Pane & Corrections                                         | _unassigned_ |
 
 ## Reference
 

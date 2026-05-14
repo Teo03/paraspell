@@ -329,6 +329,41 @@ class TestCheckFile:
         assert resp.status_code == 200
         assert resp.json()["word_count"] == 5
 
+    def test_extracted_text_returned_for_txt(self, client: TestClient) -> None:
+        """Regression for Bug 1: /check/file response must echo the extracted text
+        so the frontend can apply corrections at the returned offsets."""
+        original = "Hello wrold this is a tst."
+        payload = _make_txt_bytes(original)
+        resp = client.post(
+            "/check/file",
+            files={"file": ("sample.txt", payload, "text/plain")},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["extracted_text"] == original
+
+    def test_extracted_text_offsets_align_with_returned_text(
+        self, client: TestClient
+    ) -> None:
+        """Regression for Bug 2: every correction's offset must index into
+        ``extracted_text`` and slice back the original misspelled word — this
+        is what the frontend's ``Apply All`` relies on."""
+        payload = _make_txt_bytes("Hello wrold this is a tst with mispelt wrds.")
+        resp = client.post(
+            "/check/file",
+            files={"file": ("offsets.txt", payload, "text/plain")},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        extracted = data["extracted_text"]
+        assert extracted, "extracted_text must not be empty when corrections exist"
+        for c in data["corrections"]:
+            sliced = extracted[c["offset"]: c["offset"] + len(c["original"])]
+            assert sliced == c["original"], (
+                f"offset {c['offset']} for {c['original']!r} "
+                f"sliced {sliced!r} from extracted_text"
+            )
+
 
 # ---------------------------------------------------------------------------
 # TestFileValidation

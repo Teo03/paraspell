@@ -39,3 +39,11 @@ class SpellCheckResponse(BaseModel):
         default_factory=list,
         description="One entry per misspelled word.",
     )
+    extracted_text: str = Field(
+        "",
+        description=(
+            "The plain text the engine ran on. Empty for /check/text (the "
+            "client already has it); populated for /check/file so the "
+            "frontend can apply corrections at the returned offsets."
+        ),
+    )
