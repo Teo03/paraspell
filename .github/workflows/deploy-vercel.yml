@@ -1,0 +1,70 @@
+name: Deploy frontend to Vercel
+
+# We didn't connect the Vercel project to GitHub directly (the Vercel
+# account is missing a GitHub Login Connection — fixable from the UI but
+# not from CLI). Instead, this workflow calls the Vercel CLI with a
+# scoped token so push-to-main still gets an automatic production deploy.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/frontend/**'
+      - 'vercel.json'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
+      - 'package.json'
+      - '.github/workflows/deploy-vercel.yml'
+  workflow_dispatch:
+
+# One in-flight deploy per branch. Newer pushes cancel older queued runs
+# so two production deploys don't race.
+concurrency:
+  group: deploy-vercel-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: vercel build + deploy --prod
+    runs-on: ubuntu-latest
+
+    # VERCEL_ORG_ID / VERCEL_PROJECT_ID are the same IDs that live in
+    # .vercel/project.json locally (gitignored). They're not secret per
+    # se, but storing them as secrets keeps the workflow file free of
+    # account-specific values — anyone forking the repo can point this
+    # at their own Vercel project just by changing the secrets.
+    env:
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install Vercel CLI
+        # Pin to a known-working major. `latest` would work too, but
+        # pinning catches breaking-change surprises early instead of in
+        # the middle of a demo.
+        run: npm install --global vercel@54
+
+      - name: Pull Vercel project config
+        # `vercel pull` materialises the .vercel/project.json link plus
+        # all project env vars (so VITE_API_BASE_URL flows into the build
+        # exactly the way it would on a `vercel --prod` from a local
+        # checkout).
+        run: vercel pull --yes --environment=production --token=${{ secrets.VERCEL_TOKEN }}
+
+      - name: Build with Vercel CLI
+        # Building via `vercel build` (not `pnpm build`) so the output
+        # matches what `vercel deploy --prebuilt` expects on the other
+        # side. It honours vercel.json automatically.
+        run: vercel build --prod --token=${{ secrets.VERCEL_TOKEN }}
+
+      - name: Deploy to Vercel production
+        # `--prebuilt` uses the build artifacts from the previous step
+        # so the platform doesn't redo work the runner already did.
+        run: vercel deploy --prebuilt --prod --token=${{ secrets.VERCEL_TOKEN }}
