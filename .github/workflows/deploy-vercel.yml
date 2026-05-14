@@ -40,15 +40,6 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
 
-      - name: Set up pnpm
-        # Must come before setup-node so node-version step can also wire
-        # its pnpm cache. Vercel's "install" step in vercel.json runs
-        # `pnpm install`, so the binary needs to exist on the runner —
-        # the Vercel CLI itself doesn't bundle a package manager.
-        uses: pnpm/action-setup@v4
-        with:
-          version: "8.15.3"
-
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
@@ -60,20 +51,18 @@ jobs:
         # the middle of a demo.
         run: npm install --global vercel@54
 
-      - name: Pull Vercel project config
-        # `vercel pull` materialises the .vercel/project.json link plus
-        # all project env vars (so VITE_API_BASE_URL flows into the build
-        # exactly the way it would on a `vercel --prod` from a local
-        # checkout).
+      - name: Link project (writes .vercel/project.json from secrets)
+        # `vercel pull` resolves VERCEL_ORG_ID + VERCEL_PROJECT_ID into a
+        # local link config so the next `deploy` step knows what project
+        # to target without prompting.
         run: vercel pull --yes --environment=production --token=${{ secrets.VERCEL_TOKEN }}
 
-      - name: Build with Vercel CLI
-        # Building via `vercel build` (not `pnpm build`) so the output
-        # matches what `vercel deploy --prebuilt` expects on the other
-        # side. It honours vercel.json automatically.
-        run: vercel build --prod --token=${{ secrets.VERCEL_TOKEN }}
-
       - name: Deploy to Vercel production
-        # `--prebuilt` uses the build artifacts from the previous step
-        # so the platform doesn't redo work the runner already did.
-        run: vercel deploy --prebuilt --prod --token=${{ secrets.VERCEL_TOKEN }}
+        # Server-side build (no --prebuilt). The Vercel build container
+        # picks up project env vars (VITE_API_BASE_URL etc.) and injects
+        # them into the Vite build automatically — that's the path that
+        # works end-to-end. Running `vercel build` on the GH runner first
+        # is faster on paper but the env injection into the Vite subproc
+        # is flaky from a monorepo subdir; trading the few extra seconds
+        # for reliability.
+        run: vercel deploy --prod --token=${{ secrets.VERCEL_TOKEN }} --yes
